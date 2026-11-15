@@ -82,7 +82,9 @@ Stored in `~/.config/gh/board.json` (or your platform's config dir).
 
 ## Board setup
 
-The Board needs a single-select **Status** field with the six options above, in that order, a board-layout view grouped by Status, and the built-in workflows listed in [board.yml](pkg/board/board.yml) (notably *Item added to project* **off**). `gh board init` creates a missing project and Status field, never edits an existing one, and prints manual steps for anything else it finds wrong.
+The Board needs a single-select **Status** field with the six options above, in that order, a board-layout view grouped by Status, and the built-in workflows listed in [board.yml](pkg/board/board.yml). `gh board init` creates a missing project and Status field, never edits an existing one, and fails with exact steps (including the workflows URL) for anything else it finds wrong.
+
+**Workflows are enforced.** GitHub has no API to enable or configure project workflows, so the tool cannot turn them on for you. Instead it checks, on `init` and before every command that uses the Board, that *Item closed*, *Pull request merged*, *Code changes requested* and *Code review approved* are on and that *Item added to project* is off. If not, the command stops and prints which workflow to fix and where (`https://github.com/<users|orgs>/<owner>/projects/<n>/workflows`): select it, set the action shown, and turn it on.
 
 ## How it works
 

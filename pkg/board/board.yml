@@ -4,6 +4,10 @@
 # and the built-in project workflows that must be enabled. Captured from
 # a working board on 2026-11-15.
 #
+# Workflows marked `required: true` are checked by every command that touches the
+# board, not only `init`: GitHub has no API to enable or configure them, so a wrong
+# one stops the command with the manual fix.
+#
 # `gh board init` can CREATE a missing project and a missing Status field through
 # the API. It never edits an existing field (rewriting a single-select field's options
 # regenerates option IDs and would detach every card from its Status). Views and
@@ -114,6 +118,7 @@ workflows:
   - name: Item added to project
     number: 6
     enabled: false
+    required: true                  # the tool depends on this; commands fail without it
     reason: >
       Must stay OFF. The extension sets the first Status itself when it adds a card;
       this workflow would race it and could overwrite it with a default.
@@ -121,6 +126,7 @@ workflows:
   - name: Item closed
     number: 1
     enabled: true
+    required: true                  # the tool depends on this; commands fail without it
     expected_action: "Set Status = Closed"
     reason: >
       Closed issues and closed-unmerged PRs land in Closed. The tool ignores Closed
@@ -129,18 +135,21 @@ workflows:
   - name: Pull request merged
     number: 2
     enabled: true
+    required: true                  # the tool depends on this; commands fail without it
     expected_action: "Set Status = Approved & Merged"
     reason: Merged PRs move to Approved & Merged even if the tool has not synced yet.
 
   - name: Code changes requested
     number: 7
     enabled: true
+    required: true                  # the tool depends on this; commands fail without it
     expected_action: "Set Status = Changes Requested"
     reason: Agrees with the tool's mapping, so the card moves the moment a reviewer asks.
 
   - name: Code review approved
     number: 8
     enabled: true
+    required: true                  # the tool depends on this; commands fail without it
     expected_action: "Set Status = Approved & Merged"
     reason: Agrees with the tool's mapping (approved while still open).
 

@@ -450,7 +450,7 @@ func TestInitReportsMismatchesAndWritesConfig(t *testing.T) {
 func TestInitNeverEditsAnExistingStatusField(t *testing.T) {
 	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
 		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"Done"}]}]},
-		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[]}}}}}`})
+		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
 	runInit("", 8)
 	f.mustNotHave("field-create")
 	f.mustNotHave("field-delete")
@@ -458,7 +458,7 @@ func TestInitNeverEditsAnExistingStatusField(t *testing.T) {
 
 func TestInitCreatesMissingStatusField(t *testing.T) {
 	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
-		"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[]}}}}}`})
+		"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
 	if err := runInit("", 8); err != nil {
 		t.Fatal(err)
 	}
@@ -530,7 +530,7 @@ func TestConfigTemplatesInit(t *testing.T) {
 func TestInitDefaultsToTheActiveAccount(t *testing.T) {
 	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
 		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Needs Review"},{"name":"Changes Requested"},{"name":"Approved & Merged"},{"name":"Closed"}]}]},
-		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[]}}}}}`})
+		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
 	cfg, _ := config.Load()
 	cfg.Board.Owner, cfg.Board.Project = "", 0
 	cfg.Save()
@@ -549,7 +549,7 @@ func TestInitCreatesABoardForTheActiveAccount(t *testing.T) {
 	f := useFakeGH(t,
 		rule{Match: "project create", Stdout: `{"number":4}`},
 		rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
-			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[]}}}}}`})
+			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
 	cfg, _ := config.Load()
 	cfg.Board.Owner, cfg.Board.Project = "", 0
 	cfg.Save()
@@ -567,7 +567,7 @@ func TestInitCreatesABoardForTheActiveAccount(t *testing.T) {
 func TestChangingOwnerForgetsTheOldProjectNumber(t *testing.T) {
 	useFakeGH(t, rule{Match: "project create", Stdout: `{"number":2}`},
 		rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
-			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[]}}}}}`})
+			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
 	if err := runInit("someone-else", 0); err != nil {
 		t.Fatal(err)
 	}
@@ -597,4 +597,58 @@ func TestTeamAddOnAPersonalBoardSkipsMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.mustNotHave("orgs/")
+}
+
+func workflowsBoard(nodes string) rule {
+	return rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
+		"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[` + nodes + `]}}}}}`}
+}
+
+func TestCommandsFailWhenAStatusWorkflowIsDisabled(t *testing.T) {
+	useFakeGH(t,
+		rule{Match: "users/test-owner", Stdout: "Organization"},
+		workflowsBoard(`{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},
+			{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":false},
+			{"name":"Code review approved","enabled":true}`))
+	setupRepo(t)
+
+	err := runTodo("x", "", "")
+	if err == nil {
+		t.Fatal("want an error when a status workflow is disabled")
+	}
+	for _, want := range []string{"Code changes requested", "must be ON", "https://github.com/orgs/test-owner/projects/8/workflows", "Set Status = Changes Requested", "gh board init"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q:\n%v", want, err)
+		}
+	}
+}
+
+func TestCommandsFailWhenItemAddedWorkflowIsOn(t *testing.T) {
+	useFakeGH(t, workflowsBoard(`{"name":"Item added to project","enabled":true},{"name":"Item closed","enabled":true},
+		{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},
+		{"name":"Code review approved","enabled":true}`))
+	setupRepo(t)
+	err := runTodo("x", "", "")
+	if err == nil || !strings.Contains(err.Error(), "must be OFF") || !strings.Contains(err.Error(), "users/test-owner/projects/8/workflows") {
+		t.Fatalf("err = %v, want a must-be-OFF fix with the personal-board URL", err)
+	}
+}
+
+func TestCommandsFailWhenAWorkflowIsMissing(t *testing.T) {
+	useFakeGH(t, workflowsBoard(`{"name":"Item closed","enabled":true}`))
+	setupRepo(t)
+	err := runTodo("x", "", "")
+	if err == nil || !strings.Contains(err.Error(), "was not found on the board") {
+		t.Fatalf("err = %v, want a not-found message", err)
+	}
+}
+
+func TestInitFailsWithFixStepsForDisabledWorkflows(t *testing.T) {
+	useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
+		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Needs Review"},{"name":"Changes Requested"},{"name":"Approved & Merged"},{"name":"Closed"}]}]},
+		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item closed","enabled":false}]}}}}}`})
+	err := runInit("", 8)
+	if err == nil || !strings.Contains(err.Error(), "no API to change workflows") {
+		t.Fatalf("err = %v, want a non-zero exit explaining workflows are manual", err)
+	}
 }

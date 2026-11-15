@@ -80,6 +80,7 @@ func baseRules() []rule {
 			{"id":"opt-approved","name":"Approved & Merged"},{"id":"opt-closed","name":"Closed"}]}]}`},
 		{Match: "project item-list", Stdout: `{"items":[]}`},
 		{Match: "project item-add", Stdout: `{"id":"NEWITEM"}`},
+		{Match: "api graphql", Stdout: healthyBoard},
 	}
 }
 
@@ -170,3 +171,10 @@ func featureBranch(t *testing.T, repo, name string) {
 	runGit(t, repo, "checkout", "-b", name)
 	runGit(t, repo, "commit", "--allow-empty", "-m", "work")
 }
+
+// healthyBoard is a live Board with the required workflows set correctly.
+const healthyBoard = `{"data":{"repositoryOwner":{"projectV2":{
+	"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},
+	"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},
+		{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},
+		{"name":"Code review approved","enabled":true}]}}}}}`

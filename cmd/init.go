@@ -26,62 +26,6 @@ func newInitCmd() *cobra.Command {
 	return c
 }
 
-type liveBoard struct {
-	Fields struct {
-		Nodes []struct {
-			Name    string `json:"name"`
-			Options []struct {
-				Name string `json:"name"`
-			} `json:"options"`
-		} `json:"nodes"`
-	} `json:"fields"`
-	Views struct {
-		Nodes []struct {
-			Name string `json:"name"`
-		} `json:"nodes"`
-	} `json:"views"`
-	Workflows struct {
-		Nodes []struct {
-			Name    string `json:"name"`
-			Enabled bool   `json:"enabled"`
-		} `json:"nodes"`
-	} `json:"workflows"`
-}
-
-const liveQuery = `query($o:String!,$n:Int!){repositoryOwner(login:$o){... on ProjectV2Owner{projectV2(number:$n){` +
-	`fields(first:50){nodes{... on ProjectV2SingleSelectField{name options{name}}}}` +
-	`views(first:20){nodes{name}} workflows(first:30){nodes{name enabled}}}}}}`
-
-func readLive(owner string, number int) (board.ViewState, error) {
-	var r struct {
-		Data struct {
-			Owner struct {
-				ProjectV2 liveBoard `json:"projectV2"`
-			} `json:"repositoryOwner"`
-		} `json:"data"`
-	}
-	if err := gh.ReadJSON(&r, "api", "graphql", "-f", "query="+liveQuery, "-f", "o="+owner, "-F", "n="+strconv.Itoa(number)); err != nil {
-		return board.ViewState{}, err
-	}
-	p := r.Data.Owner.ProjectV2
-	st := board.ViewState{Workflows: map[string]bool{}}
-	for _, f := range p.Fields.Nodes {
-		if f.Name == "Status" {
-			st.StatusOptions = []string{}
-			for _, o := range f.Options {
-				st.StatusOptions = append(st.StatusOptions, o.Name)
-			}
-		}
-	}
-	for _, v := range p.Views.Nodes {
-		st.Views = append(st.Views, v.Name)
-	}
-	for _, w := range p.Workflows.Nodes {
-		st.Workflows[w.Name] = w.Enabled
-	}
-	return st, nil
-}
-
 // chooseOwner returns whose board to use: --owner, else the configured
 // owner, else (interactively) the active account or one of its
 // organisations, else the active account.
@@ -179,7 +123,7 @@ func runInit(ownerFlag string, projectFlag int) error {
 		theme.Successf("Created board %q (#%d)", title, created.Number)
 	}
 
-	live, err := readLive(cfg.Board.Owner, cfg.Board.Project)
+	live, err := board.ReadLive(cfg.Board.Owner, cfg.Board.Project)
 	if err != nil {
 		return fmt.Errorf("reading board %s #%d: %w", cfg.Board.Owner, cfg.Board.Project, err)
 	}
@@ -198,7 +142,8 @@ func runInit(ownerFlag string, projectFlag int) error {
 	}
 	theme.Successf("Using board %s #%d", cfg.Board.Owner, cfg.Board.Project)
 
-	problems := def.Check(live)
+	ownerType, _ := gh.Read("api", "users/"+cfg.Board.Owner, "--jq", ".type")
+	problems := def.Check(live, board.SettingsURL(ownerType, cfg.Board.Owner, cfg.Board.Project), false)
 	for _, p := range problems {
 		theme.Warningf("%s", p)
 	}
@@ -209,7 +154,7 @@ func runInit(ownerFlag string, projectFlag int) error {
 		}
 	}
 	if len(problems) > 0 {
-		return fmt.Errorf("the board does not match board.yml (%d problem(s)); fix the above and re-run `gh board init`", len(problems))
+		return fmt.Errorf("the board is not set up as board.yml requires (%d problem(s)); GitHub has no API to change workflows, so fix the above in the browser and re-run `gh board init`", len(problems))
 	}
 	theme.Successf("The board matches board.yml")
 	return nil
