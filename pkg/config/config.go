@@ -17,7 +17,7 @@ type Teammate struct {
 }
 
 type BoardConfig struct {
-	Org     string `json:"org"`
+	Owner   string `json:"owner"`
 	Project int    `json:"project"`
 }
 
@@ -49,7 +49,6 @@ type Config struct {
 
 func defaults() *Config {
 	return &Config{
-		Board:  BoardConfig{Org: "AWS-PLAT-LZ-SAFE", Project: 8},
 		Branch: BranchConfig{Prefix: "task"},
 		UI:     UIConfig{Color: "auto"},
 	}
@@ -128,9 +127,9 @@ type settingField struct {
 }
 
 var fields = []settingField{
-	{"board.org",
-		func(c *Config) string { return c.Board.Org },
-		func(c *Config, v string) error { c.Board.Org = v; return nil }},
+	{"board.owner",
+		func(c *Config) string { return c.Board.Owner },
+		func(c *Config, v string) error { c.Board.Owner = v; return nil }},
 	{"board.project",
 		func(c *Config) string { return strconv.Itoa(c.Board.Project) },
 		func(c *Config, v string) error {

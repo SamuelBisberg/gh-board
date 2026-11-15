@@ -13,15 +13,15 @@ import (
 )
 
 func newInitCmd() *cobra.Command {
-	var org string
+	var owner string
 	var project int
 	c := &cobra.Command{
 		Use:   "init",
-		Short: "Pick the Board, check it against board.yml and write the config",
+		Short: "Pick your Board, check it against board.yml and write the config",
 		Args:  cobra.NoArgs,
-		RunE:  func(cmd *cobra.Command, args []string) error { return runInit(org, project) },
+		RunE:  func(cmd *cobra.Command, args []string) error { return runInit(owner, project) },
 	}
-	c.Flags().StringVar(&org, "org", "", "organisation that owns the Board")
+	c.Flags().StringVar(&owner, "owner", "", "user or organisation that owns the Board (default: you)")
 	c.Flags().IntVar(&project, "project", 0, "project number (skips the picker)")
 	return c
 }
@@ -48,22 +48,22 @@ type liveBoard struct {
 	} `json:"workflows"`
 }
 
-const liveQuery = `query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){` +
+const liveQuery = `query($o:String!,$n:Int!){repositoryOwner(login:$o){... on ProjectV2Owner{projectV2(number:$n){` +
 	`fields(first:50){nodes{... on ProjectV2SingleSelectField{name options{name}}}}` +
-	`views(first:20){nodes{name}} workflows(first:30){nodes{name enabled}}}}}`
+	`views(first:20){nodes{name}} workflows(first:30){nodes{name enabled}}}}}}`
 
-func readLive(org string, number int) (board.ViewState, error) {
+func readLive(owner string, number int) (board.ViewState, error) {
 	var r struct {
 		Data struct {
-			Organization struct {
+			Owner struct {
 				ProjectV2 liveBoard `json:"projectV2"`
-			} `json:"organization"`
+			} `json:"repositoryOwner"`
 		} `json:"data"`
 	}
-	if err := gh.ReadJSON(&r, "api", "graphql", "-f", "query="+liveQuery, "-f", "o="+org, "-F", "n="+strconv.Itoa(number)); err != nil {
+	if err := gh.ReadJSON(&r, "api", "graphql", "-f", "query="+liveQuery, "-f", "o="+owner, "-F", "n="+strconv.Itoa(number)); err != nil {
 		return board.ViewState{}, err
 	}
-	p := r.Data.Organization.ProjectV2
+	p := r.Data.Owner.ProjectV2
 	st := board.ViewState{Workflows: map[string]bool{}}
 	for _, f := range p.Fields.Nodes {
 		if f.Name == "Status" {
@@ -82,7 +82,33 @@ func readLive(org string, number int) (board.ViewState, error) {
 	return st, nil
 }
 
-func runInit(orgFlag string, projectFlag int) error {
+// chooseOwner returns whose board to use: --owner, else the configured
+// owner, else (interactively) the active account or one of its
+// organisations, else the active account.
+func chooseOwner(flag, configured, login string) (string, error) {
+	if flag != "" {
+		return flag, nil
+	}
+	if configured != "" {
+		return configured, nil
+	}
+	if tui.IsInteractive() {
+		owners := []string{login}
+		if out, err := gh.Read("api", "user/orgs", "--jq", ".[].login"); err == nil && out != "" {
+			owners = append(owners, strings.Fields(out)...)
+		}
+		if len(owners) > 1 {
+			idx, err := tui.PickOne("Whose board?", owners)
+			if err != nil {
+				return "", err
+			}
+			return owners[idx], nil
+		}
+	}
+	return login, nil
+}
+
+func runInit(ownerFlag string, projectFlag int) error {
 	if err := checkAuth(); err != nil {
 		return err
 	}
@@ -94,9 +120,20 @@ func runInit(orgFlag string, projectFlag int) error {
 	if err != nil {
 		return err
 	}
-	if orgFlag != "" {
-		cfg.Board.Org = orgFlag
+	login, err := gh.Login()
+	if err != nil {
+		return fmt.Errorf("finding the active account: %w", err)
 	}
+	prevOwner := cfg.Board.Owner
+	owner, err := chooseOwner(ownerFlag, cfg.Board.Owner, login)
+	if err != nil {
+		return err
+	}
+	if owner != prevOwner {
+		cfg.Board.Project = 0 // a project number only means something under its owner
+	}
+	cfg.Board.Owner = owner
+
 	if projectFlag > 0 {
 		cfg.Board.Project = projectFlag
 	} else if tui.IsInteractive() {
@@ -106,7 +143,7 @@ func runInit(orgFlag string, projectFlag int) error {
 				Title  string `json:"title"`
 			} `json:"projects"`
 		}
-		if err := gh.ReadJSON(&list, "project", "list", "--owner", cfg.Board.Org, "--format", "json"); err != nil {
+		if err := gh.ReadJSON(&list, "project", "list", "--owner", cfg.Board.Owner, "--format", "json"); err != nil {
 			return fmt.Errorf("listing projects: %w (try `gh auth refresh -s project -s read:org`)", err)
 		}
 		labels := []string{"Create a new board"}
@@ -125,15 +162,11 @@ func runInit(orgFlag string, projectFlag int) error {
 	}
 
 	if cfg.Board.Project == 0 {
-		login, err := gh.Login()
-		if err != nil {
-			return err
-		}
 		title := strings.ReplaceAll(def.Board.Title, "{{login}}", login)
 		var created struct {
 			Number int `json:"number"`
 		}
-		out, err := gh.Write("project", "create", "--owner", cfg.Board.Org, "--title", title, "--format", "json")
+		out, err := gh.Write("project", "create", "--owner", cfg.Board.Owner, "--title", title, "--format", "json")
 		if err != nil {
 			return fmt.Errorf("creating the board: %w", err)
 		}
@@ -146,12 +179,12 @@ func runInit(orgFlag string, projectFlag int) error {
 		theme.Successf("Created board %q (#%d)", title, created.Number)
 	}
 
-	live, err := readLive(cfg.Board.Org, cfg.Board.Project)
+	live, err := readLive(cfg.Board.Owner, cfg.Board.Project)
 	if err != nil {
-		return fmt.Errorf("reading board %s #%d: %w", cfg.Board.Org, cfg.Board.Project, err)
+		return fmt.Errorf("reading board %s #%d: %w", cfg.Board.Owner, cfg.Board.Project, err)
 	}
 	if live.StatusOptions == nil {
-		if _, err := gh.Write("project", "field-create", strconv.Itoa(cfg.Board.Project), "--owner", cfg.Board.Org,
+		if _, err := gh.Write("project", "field-create", strconv.Itoa(cfg.Board.Project), "--owner", cfg.Board.Owner,
 			"--name", "Status", "--data-type", "SINGLE_SELECT",
 			"--single-select-options", strings.Join(def.StatusOptionNames(), ",")); err != nil {
 			return fmt.Errorf("creating the Status field: %w", err)
@@ -163,7 +196,7 @@ func runInit(orgFlag string, projectFlag int) error {
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
-	theme.Successf("Using board %s #%d", cfg.Board.Org, cfg.Board.Project)
+	theme.Successf("Using board %s #%d", cfg.Board.Owner, cfg.Board.Project)
 
 	problems := def.Check(live)
 	for _, p := range problems {

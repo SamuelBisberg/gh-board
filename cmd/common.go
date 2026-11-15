@@ -57,7 +57,10 @@ func openSession(needGit bool) (*session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("finding the logged-in user: %w", err)
 	}
-	b, err := board.Open(cfg.Board.Org, cfg.Board.Project)
+	if cfg.Board.Owner == "" || cfg.Board.Project == 0 {
+		return nil, fmt.Errorf("no board configured: run `gh board init`")
+	}
+	b, err := board.Open(cfg.Board.Owner, cfg.Board.Project)
 	if err != nil {
 		return nil, err
 	}

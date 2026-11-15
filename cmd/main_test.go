@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/SamuelBisberg/gh-board/pkg/config"
 )
 
 var fakeGHBinary string
@@ -46,6 +48,11 @@ func useFakeGH(t *testing.T, rules ...rule) *fakeGH {
 	isolateGH(t)
 	t.Setenv("GH_TOKEN", "test-token")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg, _ := config.Load()
+	cfg.Board.Owner, cfg.Board.Project = "test-owner", 8
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
 
 	dir := t.TempDir()
 	rulesPath := filepath.Join(dir, "rules.json")

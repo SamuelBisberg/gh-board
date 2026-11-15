@@ -2,7 +2,7 @@
 #
 # Describes the GitHub Project the extension expects: its Status field, its view,
 # and the built-in project workflows that must be enabled. Captured from
-# https://github.com/orgs/AWS-PLAT-LZ-SAFE/projects/8 on 2026-11-15.
+# a working board on 2026-11-15.
 #
 # `gh board init` can CREATE a missing project and a missing Status field through
 # the API. It never edits an existing field (rewriting a single-select field's options
@@ -12,8 +12,8 @@
 version: 1
 
 board:
-  owner: AWS-PLAT-LZ-SAFE          # overridden by board.org in config
-  number: 8                        # overridden by board.project in config
+  # Owner and number come from the config (board.owner, board.project), chosen by
+  # `gh board init`: the active gh account by default, or one of its organisations.
   title: "@{{login}}'s Work"       # {{login}} = the logged-in gh user
   visibility: private
   # Scopes the gh session needs: `gh auth refresh -s project -s read:org`

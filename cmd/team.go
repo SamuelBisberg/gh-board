@@ -66,8 +66,15 @@ func runTeamAdd(login, alias string) error {
 	if err != nil || canonical == "" {
 		return fmt.Errorf("no GitHub user %q", login)
 	}
-	if _, err := gh.Read("api", "orgs/"+cfg.Board.Org+"/members/"+canonical, "--silent"); err != nil {
-		return fmt.Errorf("%s is not a member of %s", canonical, cfg.Board.Org)
+	// An organisation's board can only be reviewed by its members; a
+	// personal board has no such restriction.
+	if cfg.Board.Owner == "" {
+		return fmt.Errorf("no board configured: run `gh board init`")
+	}
+	if kind, _ := gh.Read("api", "users/"+cfg.Board.Owner, "--jq", ".type"); kind == "Organization" {
+		if _, err := gh.Read("api", "orgs/"+cfg.Board.Owner+"/members/"+canonical, "--silent"); err != nil {
+			return fmt.Errorf("%s is not a member of %s", canonical, cfg.Board.Owner)
+		}
 	}
 	if alias == "" {
 		alias = canonical

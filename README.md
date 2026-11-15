@@ -16,7 +16,7 @@ gh auth refresh -s project -s read:org   # scopes the extension needs
 gh board init
 ```
 
-`gh board init` lists the projects you can see, lets you pick one (or create it), checks it against [board.yml](pkg/board/board.yml) and writes the config. It uses your existing `gh auth login` session and never stores a token. Upgrade with `gh extension upgrade board`.
+`gh board init` uses your active `gh` account (or one of your organisations, or `--owner`), lets you pick one of its projects or create a new one titled "@you's Work", checks it against [board.yml](pkg/board/board.yml) and writes the config. It uses your existing `gh auth login` session and never stores a token. Upgrade with `gh extension upgrade board`.
 
 ## The daily flow
 
@@ -57,7 +57,7 @@ Rules: one card per unit of work (the PR's card replaces the issue's); only card
 | `review [name ...]` | Request reviewers on the current branch's open PR |
 | `team add\|remove\|list\|default` | Manage the teammates you can request as reviewers |
 | `sync [--current]` | Re-derive every Status from its PR and reconcile issue cards |
-| `init [--org O] [--project N]` | Pick the Board, check it against `board.yml`, write config |
+| `init [--owner O] [--project N]` | Pick your Board, check it against `board.yml`, write config |
 | `config list\|get\|set\|templates` | View or change settings and templates |
 
 Reviewers for `open` come from `-r`, else `--no-reviewers`, else `reviewers.default`, else an interactive picker over your teammates. A plain `open` on an already-ready PR never re-notifies anybody.
@@ -72,8 +72,8 @@ Stored in `~/.config/gh/board.json` (or your platform's config dir).
 
 | Key | Default | |
 |---|---|---|
-| `board.org` | `AWS-PLAT-LZ-SAFE` | Organisation that owns the Board |
-| `board.project` | `8` | The Board's project number |
+| `board.owner` | *(set by `init`)* | User or organisation that owns the Board; `init` defaults to your active `gh` account |
+| `board.project` | *(set by `init`)* | The Board's project number |
 | `todo.repo` | *(current repo)* | Where `todo` creates issues outside a repo |
 | `branch.prefix` | `task` | Prefix for branches generated from an issue |
 | `reviewers.default` | *(empty)* | Teammate aliases requested on every `open` |

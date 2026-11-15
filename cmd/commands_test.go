@@ -400,7 +400,8 @@ func TestTeamAddValidatesOrgMembership(t *testing.T) {
 	f := useFakeGH(t,
 		rule{Match: "users/ana-lopez-1234", Stdout: "ana-lopez-1234"},
 		rule{Match: "users/outsider", Stdout: "outsider"},
-		rule{Match: "orgs/AWS-PLAT-LZ-SAFE/members/outsider", Fail: "404"},
+		rule{Match: "users/test-owner", Stdout: "Organization"},
+		rule{Match: "orgs/test-owner/members/outsider", Fail: "404"},
 	)
 
 	if err := runTeamAdd("outsider", ""); err == nil {
@@ -412,7 +413,7 @@ func TestTeamAddValidatesOrgMembership(t *testing.T) {
 	if err := runTeamAdd("ana-lopez-1234", "ANA"); err == nil {
 		t.Fatal("want an error for a duplicate alias (case-insensitive)")
 	}
-	f.mustHave("orgs/AWS-PLAT-LZ-SAFE/members/ana-lopez-1234")
+	f.mustHave("orgs/test-owner/members/ana-lopez-1234")
 
 	cfg, _ := config.Load()
 	if len(cfg.Team) != 1 || cfg.Team[0].Alias != "ana" {
@@ -431,7 +432,7 @@ func TestTeamAddValidatesOrgMembership(t *testing.T) {
 }
 
 func TestInitReportsMismatchesAndWritesConfig(t *testing.T) {
-	useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"organization":{"projectV2":{
+	useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
 		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"Done"}]}]},
 		"views":{"nodes":[]},
 		"workflows":{"nodes":[{"name":"Item added to project","enabled":true}]}}}}}`})
@@ -441,13 +442,13 @@ func TestInitReportsMismatchesAndWritesConfig(t *testing.T) {
 		t.Fatal("want a non-zero exit on mismatch")
 	}
 	cfg, _ := config.Load()
-	if cfg.Board.Org != "my-org" || cfg.Board.Project != 3 {
+	if cfg.Board.Owner != "my-org" || cfg.Board.Project != 3 {
 		t.Errorf("config not written: %+v", cfg.Board)
 	}
 }
 
 func TestInitNeverEditsAnExistingStatusField(t *testing.T) {
-	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"organization":{"projectV2":{
+	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
 		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"Done"}]}]},
 		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[]}}}}}`})
 	runInit("", 8)
@@ -456,7 +457,7 @@ func TestInitNeverEditsAnExistingStatusField(t *testing.T) {
 }
 
 func TestInitCreatesMissingStatusField(t *testing.T) {
-	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"organization":{"projectV2":{
+	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
 		"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[]}}}}}`})
 	if err := runInit("", 8); err != nil {
 		t.Fatal(err)
@@ -524,4 +525,76 @@ func TestConfigTemplatesInit(t *testing.T) {
 			t.Errorf("%s not written: %v", n, err)
 		}
 	}
+}
+
+func TestInitDefaultsToTheActiveAccount(t *testing.T) {
+	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
+		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Needs Review"},{"name":"Changes Requested"},{"name":"Approved & Merged"},{"name":"Closed"}]}]},
+		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[]}}}}}`})
+	cfg, _ := config.Load()
+	cfg.Board.Owner, cfg.Board.Project = "", 0
+	cfg.Save()
+
+	if err := runInit("", 5); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ = config.Load()
+	if cfg.Board.Owner != "me" || cfg.Board.Project != 5 {
+		t.Errorf("board = %+v, want owner of the active account (me) and project 5", cfg.Board)
+	}
+	f.mustHave("api graphql", "o=me")
+}
+
+func TestInitCreatesABoardForTheActiveAccount(t *testing.T) {
+	f := useFakeGH(t,
+		rule{Match: "project create", Stdout: `{"number":4}`},
+		rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
+			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[]}}}}}`})
+	cfg, _ := config.Load()
+	cfg.Board.Owner, cfg.Board.Project = "", 0
+	cfg.Save()
+
+	if err := runInit("", 0); err != nil {
+		t.Fatal(err)
+	}
+	f.mustHave("project create", "--owner me", "--title @me's Work")
+	cfg, _ = config.Load()
+	if cfg.Board.Project != 4 {
+		t.Errorf("project = %d, want 4", cfg.Board.Project)
+	}
+}
+
+func TestChangingOwnerForgetsTheOldProjectNumber(t *testing.T) {
+	useFakeGH(t, rule{Match: "project create", Stdout: `{"number":2}`},
+		rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
+			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[]}}}}}`})
+	if err := runInit("someone-else", 0); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load()
+	if cfg.Board.Owner != "someone-else" || cfg.Board.Project != 2 {
+		t.Errorf("board = %+v", cfg.Board)
+	}
+}
+
+func TestCommandsNeedAConfiguredBoard(t *testing.T) {
+	useFakeGH(t)
+	cfg, _ := config.Load()
+	cfg.Board.Owner, cfg.Board.Project = "", 0
+	cfg.Save()
+	setupRepo(t)
+	if err := runTodo("x", "", ""); err == nil || !strings.Contains(err.Error(), "gh board init") {
+		t.Fatalf("err = %v, want a pointer to `gh board init`", err)
+	}
+}
+
+func TestTeamAddOnAPersonalBoardSkipsMembership(t *testing.T) {
+	f := useFakeGH(t,
+		rule{Match: "users/test-owner", Stdout: "User"},
+		rule{Match: "users/bob", Stdout: "bob"},
+		rule{Match: "orgs/", Fail: "should not be called"})
+	if err := runTeamAdd("bob", ""); err != nil {
+		t.Fatal(err)
+	}
+	f.mustNotHave("orgs/")
 }

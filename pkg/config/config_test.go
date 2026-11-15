@@ -8,7 +8,7 @@ func TestDefaultsAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Board.Org != "AWS-PLAT-LZ-SAFE" || cfg.Board.Project != 8 || cfg.Branch.Prefix != "task" {
+	if cfg.Board.Owner != "" || cfg.Board.Project != 0 || cfg.Branch.Prefix != "task" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 	if err := cfg.Set("board.project", "12"); err != nil {
