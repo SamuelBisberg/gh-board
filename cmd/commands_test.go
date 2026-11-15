@@ -38,7 +38,7 @@ func TestTodoCreatesIssueCard(t *testing.T) {
 	if err := runTodo("Upgrade filtering", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	f.mustHave("issue create", "-R o/r", "--title Upgrade filtering", "--assignee @me", "## Summary")
+	f.mustHave("issue create", "-R o/r", "--title Upgrade filtering", "--assignee @me", "## Problem Statement")
 	f.mustHave("project item-add", "--url https://github.com/o/r/issues/7")
 	f.mustHave("item-edit", "--id NEWITEM", "opt-todo")
 }
@@ -83,6 +83,11 @@ func TestNewFromIssueReplacesIssueCard(t *testing.T) {
 	}
 	f.mustHave("issue develop 12", "--name task/upgrade-filtering")
 	f.mustHave("pr create", "--draft", "--title task/upgrade filtering", "--head task/upgrade-filtering", "Closes #12")
+	for _, call := range f.calls() {
+		if strings.HasPrefix(call, "pr create") && strings.Count(call, "Closes #12") != 1 {
+			t.Errorf("PR body should reference the issue exactly once:\n%s", call)
+		}
+	}
 	f.mustHave("item-edit", "--id NEWITEM", "opt-progress")
 	f.mustHave("project item-delete", "--id ISSUECARD")
 	if got := runGit(t, repo, "rev-parse", "--abbrev-ref", "HEAD"); got != "task/upgrade-filtering" {
@@ -101,7 +106,7 @@ func TestOpenReadiesDraftAndRequestsReviewers(t *testing.T) {
 	cfg.Team = []config.Teammate{{Alias: "ana", Login: "ana-lopez-1234"}, {Alias: "me", Login: "me"}}
 	cfg.Save()
 
-	if err := runOpen("", []string{"ana", "me"}, false); err != nil {
+	if err := runOpen("", []string{"ana", "me"}, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.mustHave("pr ready")
@@ -119,7 +124,7 @@ func TestOpenUsesDefaultReviewersAndNoReviewersFlag(t *testing.T) {
 	cfg.Reviewers.Default = []string{"ana"}
 	cfg.Save()
 
-	if err := runOpen("", nil, false); err != nil {
+	if err := runOpen("", nil, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.mustHave("pr edit", "--add-reviewer ana-lopez-1234")
@@ -134,7 +139,7 @@ func TestOpenNoReviewers(t *testing.T) {
 	cfg.Reviewers.Default = []string{"ana"}
 	cfg.Save()
 
-	if err := runOpen("", nil, true); err != nil {
+	if err := runOpen("", nil, true, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.mustHave("pr ready")
@@ -150,7 +155,7 @@ func TestOpenAlreadyReadyDoesNotRenotify(t *testing.T) {
 	cfg.Reviewers.Default = []string{"ana"}
 	cfg.Save()
 
-	if err := runOpen("", nil, false); err != nil {
+	if err := runOpen("", nil, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.mustNotHave("pr ready")
@@ -166,11 +171,12 @@ func TestOpenCreatesReadyPRWhenNone(t *testing.T) {
 	repo, _ := setupRepo(t)
 	featureBranch(t, repo, "refactor-wf-inputs")
 
-	if err := runOpen("", nil, true); err != nil {
+	if err := runOpen("", nil, true, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.mustHave("pr create", "--title refactor wf inputs", "## Summary")
 	f.mustNotHave("--draft")
+	f.mustNotHave("Closes #")
 	f.mustHave("item-edit", "opt-review")
 }
 
@@ -178,7 +184,7 @@ func TestOpenRefusals(t *testing.T) {
 	t.Run("default branch", func(t *testing.T) {
 		useFakeGH(t)
 		setupRepo(t)
-		if err := runOpen("", nil, true); err == nil {
+		if err := runOpen("", nil, true, 0); err == nil {
 			t.Fatal("want an error on the default branch")
 		}
 	})
@@ -186,7 +192,7 @@ func TestOpenRefusals(t *testing.T) {
 		useFakeGH(t, rule{Match: "pr view", Stdout: prJSON("https://github.com/o/r/pull/1", false, "MERGED", "", "me")})
 		repo, _ := setupRepo(t)
 		featureBranch(t, repo, "feat")
-		if err := runOpen("", nil, true); err == nil {
+		if err := runOpen("", nil, true, 0); err == nil {
 			t.Fatal("want an error for a merged PR")
 		}
 	})
@@ -194,7 +200,7 @@ func TestOpenRefusals(t *testing.T) {
 		useFakeGH(t, rule{Match: "pr view", Fail: "no pull requests found"})
 		repo, _ := setupRepo(t)
 		runGit(t, repo, "checkout", "-b", "feat")
-		if err := runOpen("", nil, true); err == nil {
+		if err := runOpen("", nil, true, 0); err == nil {
 			t.Fatal("want an error with no commits ahead")
 		}
 	})
@@ -208,7 +214,7 @@ func TestPushOpensDraftPRWhenNone(t *testing.T) {
 	repo, remote := setupRepo(t)
 	featureBranch(t, repo, "feat")
 
-	if err := runPush(nil); err != nil {
+	if err := runPush(nil, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.mustHave("pr create", "--draft")
@@ -221,7 +227,7 @@ func TestPushOpensDraftPRWhenNone(t *testing.T) {
 func TestPushRefusesDefaultBranch(t *testing.T) {
 	useFakeGH(t)
 	setupRepo(t)
-	if err := runPush(nil); err == nil {
+	if err := runPush(nil, 0); err == nil {
 		t.Fatal("want an error on the default branch")
 	}
 }
@@ -469,7 +475,7 @@ func TestStatusIsNeverWrittenAsClosed(t *testing.T) {
 	f := useFakeGH(t, rule{Match: "pr view", Stdout: prJSON("https://github.com/o/r/pull/1", false, "CLOSED", "", "me")})
 	repo, _ := setupRepo(t)
 	featureBranch(t, repo, "feat")
-	if err := runPush(nil); err != nil {
+	if err := runPush(nil, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.mustNotHave("opt-closed")
@@ -651,4 +657,48 @@ func TestInitFailsWithFixStepsForDisabledWorkflows(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no API to change workflows") {
 		t.Fatalf("err = %v, want a non-zero exit explaining workflows are manual", err)
 	}
+}
+
+func TestOpenAndPushLinkAnIssueWhenCreatingThePR(t *testing.T) {
+	const issueURL = "https://github.com/o/r/issues/12"
+	issueRule := rule{Match: "issue view", Stdout: `{"number":12,"url":"` + issueURL + `","title":"t","state":"OPEN","author":{"login":"me"}}`}
+	cardRule := rule{Match: "project item-list", Stdout: `{"items":[` + card("ic", "Issue", 12, "Todo") + `]}`}
+
+	t.Run("open", func(t *testing.T) {
+		f := useFakeGH(t, issueRule, cardRule,
+			rule{Match: "pr view", Fail: "no pull requests found"},
+			rule{Match: "pr create", Stdout: "https://github.com/o/r/pull/9\n"})
+		repo, _ := setupRepo(t)
+		featureBranch(t, repo, "feat")
+		if err := runOpen("", nil, true, 12); err != nil {
+			t.Fatal(err)
+		}
+		f.mustHave("pr create", "Closes #12")
+		f.mustHave("project item-delete", "--id ic")
+	})
+
+	t.Run("push", func(t *testing.T) {
+		f := useFakeGH(t, issueRule, cardRule,
+			rule{Match: "pr view", Fail: "no pull requests found"},
+			rule{Match: "pr create", Stdout: "https://github.com/o/r/pull/9\n"})
+		repo, _ := setupRepo(t)
+		featureBranch(t, repo, "feat")
+		if err := runPush(nil, 12); err != nil {
+			t.Fatal(err)
+		}
+		f.mustHave("pr create", "--draft", "Closes #12")
+		f.mustHave("project item-delete", "--id ic")
+	})
+
+	t.Run("existing PR is left alone", func(t *testing.T) {
+		f := useFakeGH(t, issueRule, cardRule,
+			rule{Match: "pr view", Stdout: prJSON("https://github.com/o/r/pull/9", true, "OPEN", "", "me")})
+		repo, _ := setupRepo(t)
+		featureBranch(t, repo, "feat")
+		if err := runPush(nil, 12); err != nil {
+			t.Fatal(err)
+		}
+		f.mustNotHave("pr create")
+		f.mustNotHave("project item-delete")
+	})
 }

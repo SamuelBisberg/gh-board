@@ -1,101 +1,84 @@
-<div align="center">
-
 # gh-board
 
-*One card per unit of work, on a GitHub Project board, from a Todo issue to a merged PR*
-
-</div>
-
-`gh-board` is a [GitHub CLI](https://cli.github.com) extension that keeps a GitHub Project **Board** in step with the work you do. Capture work as an issue, start it, push, open it for review, and its card moves through the columns by itself. The pull request is the source of truth; the Board only mirrors it. Terms in **bold** are defined in [GLOSSARY.md](GLOSSARY.md).
+A [GitHub CLI](https://cli.github.com) extension that keeps a GitHub Project board in step with your work. Capture an issue, start it, push, open it for review: the card moves by itself. The PR is the source of truth; the board only mirrors it.
 
 ## Install
 
 ```sh
 gh extension install SamuelBisberg/gh-board
-gh auth refresh -s project -s read:org   # scopes the extension needs
-gh board init
+gh auth refresh -s project -s read:org
+gh board init        # uses your active gh account; pick or create a board
 ```
 
-`gh board init` uses your active `gh` account (or one of your organisations, or `--owner`), lets you pick one of its projects or create a new one titled "@you's Work", checks it against [board.yml](pkg/board/board.yml) and writes the config. It uses your existing `gh auth login` session and never stores a token. Upgrade with `gh extension upgrade board`.
-
-## The daily flow
+## Daily flow
 
 ```console
-$ gh board todo "Upgrade filtering"     # capture it: issue -> Todo
-$ gh board new --issue 12                # start: branch + draft PR -> In Progress
-  ... commit ...
-$ gh board push                          # push; the board stays in step
-$ gh board open -r ana                   # ready for review -> Needs Review, ana requested
-$ gh board review bob                    # ask someone else later
-$ gh board sync                          # reviews and merges move the card
+$ gh board todo "Upgrade filtering"   # issue -> Todo
+$ gh board new --issue 12             # branch + draft PR -> In Progress (issue card replaced)
+$ gh board push                       # push; card stays in step
+$ gh board open -r ana                # ready for review -> Needs Review, ana requested
+$ gh board sync                       # reviews and merges move the cards
 ```
 
-Every command that changes GitHub accepts `--dry-run`, which prints the planned `gh`/`git` calls and changes nothing.
+Add `--dry-run` to any command to print the planned `gh`/`git` calls without changing anything.
 
 ## Columns
 
-| Status | What puts a card here | Card is |
-|---|---|---|
-| **Todo** | An open issue you created with `gh board todo`, with no PR yet | Issue |
-| **In Progress** | A draft PR | PR |
-| **Needs Review** | A ready PR with no review decision | PR |
-| **Changes Requested** | A ready PR with `CHANGES_REQUESTED` | PR |
-| **Approved & Merged** | An approved or merged PR | PR |
-| **Closed** | Closed without merging; set by the Board's own *Item closed* workflow, never by the tool | Issue or PR |
+| Status | A card is here when |
+|---|---|
+| Todo | an issue you created with `todo` has no PR yet |
+| In Progress | its PR is a draft |
+| Needs Review | its PR is ready, no review decision |
+| Changes Requested | a reviewer requested changes |
+| Approved & Merged | its PR is approved or merged |
+| Closed | closed unmerged (set by the board's own workflow, never by the tool) |
 
-Rules: one card per unit of work (the PR's card replaces the issue's); only cards you authored are ever changed; `sync` overwrites manual drags; merged PRs are never newly tracked; nothing is added from assignments.
+Only cards for things you authored are changed. `sync` overwrites manual drags: move a card by changing the PR.
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `gh board` | Interactive list of your Todo issues (`--all` for every repo); `enter` starts work, `o` opens in the browser |
-| `todo <title> [-b body] [-R owner/repo]` | Create an issue assigned to you and add it as Todo |
-| `new [branch] [base] [-t title] [--issue N]` | Branch from `origin/<base>`, push, open a draft PR, add it as In Progress; with `--issue`, link the branch, add `Closes #N` and drop the issue's card |
-| `push [git push args]` | Push (default `-u origin HEAD`), open a draft PR if none, re-derive the card's Status |
-| `open [-t title] [-r a,b] [--no-reviewers]` | Open or ready the PR as Needs Review and request reviewers |
-| `review [name ...]` | Request reviewers on the current branch's open PR |
-| `team add\|remove\|list\|default` | Manage the teammates you can request as reviewers |
-| `sync [--current]` | Re-derive every Status from its PR and reconcile issue cards |
-| `init [--owner O] [--project N]` | Pick your Board, check it against `board.yml`, write config |
-| `config list\|get\|set\|templates` | View or change settings and templates |
+```sh
+gh board                              # pick a Todo issue and start it (--all: every repo)
+gh board todo "title" [-b body] [-R owner/repo]
+gh board new [branch] [base] [-t title] [--issue N]
+gh board push [--issue N]             # opens a draft PR if there is none
+gh board open [-r ana,bob | --no-reviewers] [--issue N]
+gh board review bob                   # request reviewers later
+gh board team add ana-lopez-1234 ana  # alias for -r ana
+gh board team default ana             # requested on every `open`
+gh board sync [--current]
+gh board init [--owner O] [--project N]
+gh board config list|get|set|templates
+```
 
-Reviewers for `open` come from `-r`, else `--no-reviewers`, else `reviewers.default`, else an interactive picker over your teammates. A plain `open` on an already-ready PR never re-notifies anybody.
+`new --issue 12` names the branch `task/<issue-title>` and adds `Closes #12` to the PR. `open` requests reviewers from `-r`, else `reviewers.default`, else a picker; it never re-notifies on an already-ready PR.
 
 ## Templates
 
-New issues and PRs get a body from the first match of: the repo's own template (`.github/PULL_REQUEST_TEMPLATE.md` etc.), your override in `~/.config/gh/board/templates/`, then the embedded default. `{{title}}`, `{{branch}}`, `{{base}}`, `{{repo}}` and `{{issue}}` are replaced. `gh board config templates` shows the active source; `--init` writes the defaults for you to edit.
+Issue and PR bodies come from the first match of: the repo's own template, your override in `~/.config/gh/board/templates/`, then the embedded default. Placeholders: `{{title}}` `{{branch}}` `{{base}}` `{{repo}}` `{{issue}}` (a line using `{{issue}}` is dropped when there is no issue).
+
+```sh
+gh board config templates --init      # write the defaults to edit
+```
 
 ## Configuration
 
-Stored in `~/.config/gh/board.json` (or your platform's config dir).
+`~/.config/gh/board.json`, edited with `gh board config set <key> <value>`:
 
-| Key | Default | |
-|---|---|---|
-| `board.owner` | *(set by `init`)* | User or organisation that owns the Board; `init` defaults to your active `gh` account |
-| `board.project` | *(set by `init`)* | The Board's project number |
-| `todo.repo` | *(current repo)* | Where `todo` creates issues outside a repo |
-| `branch.prefix` | `task` | Prefix for branches generated from an issue |
-| `reviewers.default` | *(empty)* | Teammate aliases requested on every `open` |
-| `ui.color` | `auto` | `auto`, `always` or `never` |
-| `team` | *(empty)* | Edit with `gh board team` |
+| Key | Default |
+|---|---|
+| `board.owner`, `board.project` | set by `init` (your account by default) |
+| `todo.repo` | current repo |
+| `branch.prefix` | `task` |
+| `reviewers.default` | none |
+| `ui.color` | `auto` |
 
-## Board setup
+## Board requirements
 
-The Board needs a single-select **Status** field with the six options above, in that order, a board-layout view grouped by Status, and the built-in workflows listed in [board.yml](pkg/board/board.yml). `gh board init` creates a missing project and Status field, never edits an existing one, and fails with exact steps (including the workflows URL) for anything else it finds wrong.
+The board needs a **Status** field with the six options above, in order, and a board view grouped by Status. `init` creates a missing project and Status field but never edits an existing one.
 
-**Workflows are enforced.** GitHub has no API to enable or configure project workflows, so the tool cannot turn them on for you. Instead it checks, on `init` and before every command that uses the Board, that *Item closed*, *Pull request merged*, *Code changes requested* and *Code review approved* are on and that *Item added to project* is off. If not, the command stops and prints which workflow to fix and where (`https://github.com/<users|orgs>/<owner>/projects/<n>/workflows`): select it, set the action shown, and turn it on.
+GitHub has no API to change project workflows, so the tool checks them instead. Before every command, *Item closed*, *Pull request merged*, *Code changes requested* and *Code review approved* must be **on**, and *Item added to project* **off**. If not, the command stops and tells you which to fix at `https://github.com/<users|orgs>/<owner>/projects/<n>/workflows`. The full definition is in [board.yml](pkg/board/board.yml); terms are in [GLOSSARY.md](GLOSSARY.md).
 
-## How it works
+## Status
 
-Everything is GitHub: cards are the issues and PRs themselves, managed through `gh project`. There is no server, database or local state beyond the config file. Status is derived from the PR's draft flag, state and review decision, so running `sync` repeatedly gives the same result.
-
-## Known gaps
-
-- Not yet exercised against live GitHub; the test suite uses a fake `gh`.
-- Workflow `expected_action` values in `board.yml` are inferred and should be verified once in the Board's settings.
-- `sync` costs about one API call per card.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Tested against a fake `gh`; not yet run against live GitHub. See [CONTRIBUTING.md](CONTRIBUTING.md) to help.

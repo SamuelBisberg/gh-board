@@ -101,32 +101,52 @@ func runNew(branch, base, title string, issueNum int) error {
 	s.theme.Successf("%s -> %s", url, board.InProgress)
 
 	if issue != nil {
-		items, err := s.board.Items()
-		if err != nil {
-			return err
-		}
-		if card, ok := board.Find(items, issue.URL); ok {
-			if err := s.board.Remove(card.ID); err != nil {
-				return err
-			}
-			s.theme.Infof("Removed the card for issue #%d (the PR's card replaces it)", issue.Number)
-		}
+		return s.dropIssueCard(issue)
 	}
 	return nil
 }
 
-func newPushCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:                "push [git push args]",
-		Short:              "Push and keep the card in step (opens a draft PR if none)",
-		DisableFlagParsing: false,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPush(args)
-		},
+// dropIssueCard removes an issue's card once a PR replaces it.
+func (s *session) dropIssueCard(issue *gh.Issue) error {
+	items, err := s.board.Items()
+	if err != nil {
+		return err
 	}
+	if card, ok := board.Find(items, issue.URL); ok {
+		if err := s.board.Remove(card.ID); err != nil {
+			return err
+		}
+		s.theme.Infof("Removed the card for issue #%d (the PR's card replaces it)", issue.Number)
+	}
+	return nil
 }
 
-func runPush(pushArgs []string) error {
+// issueNumber looks up --issue N, returning nil when it is 0.
+func issueNumber(n int) (*gh.Issue, error) {
+	if n == 0 {
+		return nil, nil
+	}
+	issue, err := gh.IssueView("", fmt.Sprint(n))
+	if err != nil {
+		return nil, fmt.Errorf("reading issue #%d: %w", n, err)
+	}
+	return issue, nil
+}
+
+func newPushCmd() *cobra.Command {
+	var issue int
+	c := &cobra.Command{
+		Use:   "push [git push args]",
+		Short: "Push and keep the card in step (opens a draft PR if none)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPush(args, issue)
+		},
+	}
+	c.Flags().IntVar(&issue, "issue", 0, "link this issue when a new PR is opened")
+	return c
+}
+
+func runPush(pushArgs []string, issueNum int) error {
 	s, err := openSession(true)
 	if err != nil {
 		return err
@@ -142,6 +162,10 @@ func runPush(pushArgs []string) error {
 	if branch == defBranch {
 		return fmt.Errorf("refusing to push the default branch %q", branch)
 	}
+	issue, err := issueNumber(issueNum)
+	if err != nil {
+		return err
+	}
 	if err := git.Push(pushArgs...); err != nil {
 		return err
 	}
@@ -153,7 +177,7 @@ func runPush(pushArgs []string) error {
 	if pr == nil {
 		title := prTitle(branch)
 		url, err := gh.PRCreate(gh.PRCreateOpts{
-			Title: title, Body: prBody(repo, branch, defBranch, title, 0), Base: defBranch, Head: branch, Draft: true,
+			Title: title, Body: prBody(repo, branch, defBranch, title, issueNum), Base: defBranch, Head: branch, Draft: true,
 		})
 		if err != nil {
 			return fmt.Errorf("creating pull request: %w", err)
@@ -162,7 +186,13 @@ func runPush(pushArgs []string) error {
 			return err
 		}
 		s.theme.Successf("%s -> %s", url, board.InProgress)
+		if issue != nil {
+			return s.dropIssueCard(issue)
+		}
 		return nil
+	}
+	if issue != nil {
+		s.theme.Warningf("--issue only applies when a new PR is opened; the existing PR's body is unchanged")
 	}
 	return s.trackPR(pr)
 }

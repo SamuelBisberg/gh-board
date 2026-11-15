@@ -14,21 +14,23 @@ func newOpenCmd() *cobra.Command {
 	var title string
 	var reviewers []string
 	var none bool
+	var issue int
 	c := &cobra.Command{
 		Use:   "open",
 		Short: "Open the PR for review (Needs Review) and request reviewers",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runOpen(title, splitNames(reviewers), none)
+			return runOpen(title, splitNames(reviewers), none, issue)
 		},
 	}
 	c.Flags().StringVarP(&title, "title", "t", "", "PR title (default: the branch name)")
 	c.Flags().StringSliceVarP(&reviewers, "reviewers", "r", nil, "reviewers (teammate aliases or logins)")
 	c.Flags().BoolVar(&none, "no-reviewers", false, "request nobody")
+	c.Flags().IntVar(&issue, "issue", 0, "link this issue when a new PR is opened")
 	return c
 }
 
-func runOpen(title string, names []string, none bool) error {
+func runOpen(title string, names []string, none bool, issueNum int) error {
 	s, err := openSession(true)
 	if err != nil {
 		return err
@@ -45,6 +47,10 @@ func runOpen(title string, names []string, none bool) error {
 		return fmt.Errorf("refusing to open a PR from the default branch %q", branch)
 	}
 
+	issue, err := issueNumber(issueNum)
+	if err != nil {
+		return err
+	}
 	pr, err := gh.PRView(branch)
 	if err != nil {
 		return err
@@ -87,7 +93,7 @@ func runOpen(title string, names []string, none bool) error {
 			title = prTitle(branch)
 		}
 		url, err := gh.PRCreate(gh.PRCreateOpts{
-			Title: title, Body: prBody(repo, branch, base, title, 0), Base: base, Head: branch, Reviewers: reviewers,
+			Title: title, Body: prBody(repo, branch, base, title, issueNum), Base: base, Head: branch, Reviewers: reviewers,
 		})
 		if err != nil {
 			return fmt.Errorf("creating pull request: %w", err)
@@ -96,6 +102,9 @@ func runOpen(title string, names []string, none bool) error {
 			return err
 		}
 		s.theme.Successf("%s -> %s", url, board.NeedsReview)
+		if issue != nil {
+			return s.dropIssueCard(issue)
+		}
 		return nil
 	case pr.IsDraft:
 		if err := gh.PRReady(branch); err != nil {
@@ -109,6 +118,9 @@ func runOpen(title string, names []string, none bool) error {
 		if err := gh.PRAddReviewers(branch, reviewers); err != nil {
 			return fmt.Errorf("requesting reviewers: %w", err)
 		}
+	}
+	if issue != nil {
+		s.theme.Warningf("--issue only applies when a new PR is opened; the existing PR's body is unchanged")
 	}
 	return s.trackPR(pr)
 }

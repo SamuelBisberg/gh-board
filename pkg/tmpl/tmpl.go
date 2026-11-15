@@ -66,7 +66,18 @@ func Resolve(kind Kind, repoRoot, overrideDir string) (string, Source) {
 }
 
 // Render replaces known placeholders; unknown ones are left as written.
+// A line that mentions {{issue}} is dropped when there is no linked issue,
+// so a template can say "Closes #{{issue}}" without leaving a bare "#".
 func Render(text string, v Vars) string {
+	if v.Issue == "" {
+		var kept []string
+		for _, line := range strings.Split(text, "\n") {
+			if !strings.Contains(line, "{{issue}}") {
+				kept = append(kept, line)
+			}
+		}
+		text = strings.Join(kept, "\n")
+	}
 	return strings.NewReplacer(
 		"{{title}}", v.Title, "{{branch}}", v.Branch, "{{base}}", v.Base,
 		"{{repo}}", v.Repo, "{{issue}}", v.Issue,

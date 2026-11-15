@@ -1,6 +1,8 @@
 ## Summary
 <!-- What does this change, and why? -->
 
+Closes #{{issue}}
+
 ## Changes
 -
 
