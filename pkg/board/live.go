@@ -6,7 +6,16 @@ import (
 	"github.com/SamuelBisberg/gh-board/pkg/gh"
 )
 
+// ViewState is what the live Board reports.
+type ViewState struct {
+	ProjectID     string
+	StatusOptions []string        // option names in order; nil if no Status field
+	Views         []string        // view names
+	Workflows     map[string]bool // workflow name -> enabled
+}
+
 type liveBoard struct {
+	ID     string `json:"id"`
 	Fields struct {
 		Nodes []struct {
 			Name    string `json:"name"`
@@ -28,7 +37,7 @@ type liveBoard struct {
 	} `json:"workflows"`
 }
 
-const liveQuery = `query($o:String!,$n:Int!){repositoryOwner(login:$o){... on ProjectV2Owner{projectV2(number:$n){` +
+const liveQuery = `query($o:String!,$n:Int!){repositoryOwner(login:$o){... on ProjectV2Owner{projectV2(number:$n){id ` +
 	`fields(first:50){nodes{... on ProjectV2SingleSelectField{name options{name}}}}` +
 	`views(first:20){nodes{name}} workflows(first:30){nodes{name enabled}}}}}}`
 
@@ -45,7 +54,7 @@ func ReadLive(owner string, number int) (ViewState, error) {
 		return ViewState{}, err
 	}
 	p := r.Data.Owner.ProjectV2
-	st := ViewState{Workflows: map[string]bool{}}
+	st := ViewState{ProjectID: p.ID, Workflows: map[string]bool{}}
 	for _, f := range p.Fields.Nodes {
 		if f.Name == "Status" {
 			st.StatusOptions = []string{}

@@ -8,21 +8,39 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/SamuelBisberg/gh-board/pkg/progress"
 )
 
 // run executes git with the given args in the current working directory,
 // returning stdout with its trailing newline removed. On failure the error
 // includes stderr.
 func run(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	var out string
+	err := progress.Run(label(args), func() error {
+		cmd := exec.Command("git", args...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		}
+		out = strings.TrimRight(stdout.String(), "\n")
+		return nil
+	})
+	return out, err
+}
 
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+// label names the network-touching git calls for the progress spinner;
+// local ones are fast enough that the spinner never appears for them.
+func label(args []string) string {
+	switch args[0] {
+	case "fetch":
+		return "Fetching origin"
+	case "push":
+		return "Pushing"
 	}
-	return strings.TrimRight(stdout.String(), "\n"), nil
+	return "Running git " + args[0]
 }
 
 // IsRepo reports whether the current directory is inside a git work tree.

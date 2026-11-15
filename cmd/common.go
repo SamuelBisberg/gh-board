@@ -64,9 +64,6 @@ func openSession(needGit bool) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := verifyWorkflows(cfg); err != nil {
-		return nil, err
-	}
 	return &session{cfg: cfg, theme: theme, login: login, board: b}, nil
 }
 
@@ -178,25 +175,4 @@ func jsonUnmarshal(s string, v any) error {
 		return fmt.Errorf("decoding gh output: %w", err)
 	}
 	return nil
-}
-
-// verifyWorkflows fails when a workflow the tool depends on (the automatic
-// Status updates, and "Item added to project" being off) is not set as
-// board.yml requires. GitHub has no API to change workflows, so the error
-// says how to fix it by hand.
-func verifyWorkflows(cfg *config.Config) error {
-	def, err := board.LoadDefinition()
-	if err != nil {
-		return err
-	}
-	live, err := board.ReadLive(cfg.Board.Owner, cfg.Board.Project)
-	if err != nil {
-		return fmt.Errorf("checking the board's workflows: %w (the token needs the `project` scope: `gh auth refresh -s project`)", err)
-	}
-	ownerType, _ := gh.Read("api", "users/"+cfg.Board.Owner, "--jq", ".type")
-	problems := def.Check(live, board.SettingsURL(ownerType, cfg.Board.Owner, cfg.Board.Project), true)
-	if len(problems) == 0 {
-		return nil
-	}
-	return fmt.Errorf("the board's automatic status workflows are not set up (GitHub has no API to change them, so fix this by hand):\n  - %s\nthen re-run, or `gh board init` to re-check everything", strings.Join(problems, "\n  - "))
 }

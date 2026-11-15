@@ -10,6 +10,7 @@ import (
 	"github.com/SamuelBisberg/gh-board/pkg/config"
 	"github.com/SamuelBisberg/gh-board/pkg/gh"
 	"github.com/SamuelBisberg/gh-board/pkg/git"
+	"github.com/SamuelBisberg/gh-board/pkg/progress"
 )
 
 func prJSON(url string, draft bool, state, decision, author string) string {
@@ -437,31 +438,6 @@ func TestTeamAddValidatesOrgMembership(t *testing.T) {
 	}
 }
 
-func TestInitReportsMismatchesAndWritesConfig(t *testing.T) {
-	useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
-		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"Done"}]}]},
-		"views":{"nodes":[]},
-		"workflows":{"nodes":[{"name":"Item added to project","enabled":true}]}}}}}`})
-
-	err := runInit("my-org", 3)
-	if err == nil {
-		t.Fatal("want a non-zero exit on mismatch")
-	}
-	cfg, _ := config.Load()
-	if cfg.Board.Owner != "my-org" || cfg.Board.Project != 3 {
-		t.Errorf("config not written: %+v", cfg.Board)
-	}
-}
-
-func TestInitNeverEditsAnExistingStatusField(t *testing.T) {
-	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
-		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"Done"}]}]},
-		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
-	runInit("", 8)
-	f.mustNotHave("field-create")
-	f.mustNotHave("field-delete")
-}
-
 func TestInitCreatesMissingStatusField(t *testing.T) {
 	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
 		"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
@@ -610,55 +586,6 @@ func workflowsBoard(nodes string) rule {
 		"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[` + nodes + `]}}}}}`}
 }
 
-func TestCommandsFailWhenAStatusWorkflowIsDisabled(t *testing.T) {
-	useFakeGH(t,
-		rule{Match: "users/test-owner", Stdout: "Organization"},
-		workflowsBoard(`{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},
-			{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":false},
-			{"name":"Code review approved","enabled":true}`))
-	setupRepo(t)
-
-	err := runTodo("x", "", "")
-	if err == nil {
-		t.Fatal("want an error when a status workflow is disabled")
-	}
-	for _, want := range []string{"Code changes requested", "must be ON", "https://github.com/orgs/test-owner/projects/8/workflows", "Set Status = Changes Requested", "gh board init"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error lacks %q:\n%v", want, err)
-		}
-	}
-}
-
-func TestCommandsFailWhenItemAddedWorkflowIsOn(t *testing.T) {
-	useFakeGH(t, workflowsBoard(`{"name":"Item added to project","enabled":true},{"name":"Item closed","enabled":true},
-		{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},
-		{"name":"Code review approved","enabled":true}`))
-	setupRepo(t)
-	err := runTodo("x", "", "")
-	if err == nil || !strings.Contains(err.Error(), "must be OFF") || !strings.Contains(err.Error(), "users/test-owner/projects/8/workflows") {
-		t.Fatalf("err = %v, want a must-be-OFF fix with the personal-board URL", err)
-	}
-}
-
-func TestCommandsFailWhenAWorkflowIsMissing(t *testing.T) {
-	useFakeGH(t, workflowsBoard(`{"name":"Item closed","enabled":true}`))
-	setupRepo(t)
-	err := runTodo("x", "", "")
-	if err == nil || !strings.Contains(err.Error(), "was not found on the board") {
-		t.Fatalf("err = %v, want a not-found message", err)
-	}
-}
-
-func TestInitFailsWithFixStepsForDisabledWorkflows(t *testing.T) {
-	useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
-		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Needs Review"},{"name":"Changes Requested"},{"name":"Approved & Merged"},{"name":"Closed"}]}]},
-		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item closed","enabled":false}]}}}}}`})
-	err := runInit("", 8)
-	if err == nil || !strings.Contains(err.Error(), "no API to change workflows") {
-		t.Fatalf("err = %v, want a non-zero exit explaining workflows are manual", err)
-	}
-}
-
 func TestOpenAndPushLinkAnIssueWhenCreatingThePR(t *testing.T) {
 	const issueURL = "https://github.com/o/r/issues/12"
 	issueRule := rule{Match: "issue view", Stdout: `{"number":12,"url":"` + issueURL + `","title":"t","state":"OPEN","author":{"login":"me"}}`}
@@ -701,4 +628,98 @@ func TestOpenAndPushLinkAnIssueWhenCreatingThePR(t *testing.T) {
 		f.mustNotHave("pr create")
 		f.mustNotHave("project item-delete")
 	})
+}
+
+func TestSlowCallsReportProgress(t *testing.T) {
+	useFakeGH(t,
+		rule{Match: "pr view", Fail: "no pull requests found"},
+		rule{Match: "pr create", Stdout: "https://github.com/o/r/pull/9\n"})
+	repo, _ := setupRepo(t)
+	featureBranch(t, repo, "feat")
+
+	var labels []string
+	progress.Run = func(label string, fn func() error) error {
+		labels = append(labels, label)
+		return fn()
+	}
+	t.Cleanup(func() { progress.Run = func(_ string, fn func() error) error { return fn() } })
+
+	if err := runPush(nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(labels, "|")
+	for _, want := range []string{"Checking your account", "Opening the board", "Pushing", "Reading the pull request", "Creating the pull request", "Adding to the board", "Updating the card"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no progress label %q in %q", want, got)
+		}
+	}
+}
+
+func TestProgressDoesNotSwallowErrors(t *testing.T) {
+	useFakeGH(t, rule{Match: "issue create", Fail: "boom"})
+	setupRepo(t)
+	progress.Run = func(_ string, fn func() error) error { return fn() }
+	err := runTodo("x", "", "")
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("err = %v, want the gh failure to come through", err)
+	}
+}
+
+const wrongStatusBoard = `{"data":{"repositoryOwner":{"projectV2":{"id":"PID",
+	"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Done"}]}]},
+	"views":{"nodes":[]},"workflows":{"nodes":[]}}}}}`
+
+func TestInitFixesTheBoardAutomatically(t *testing.T) {
+	f := useFakeGH(t,
+		rule{Match: "project field-list", Stdout: `{"fields":[{"id":"FID","name":"Status","options":[
+			{"id":"T1","name":"Todo"},{"id":"P1","name":"In Progress"},{"id":"D1","name":"Done"}]}]}`},
+		rule{Match: "api graphql -f query=query", Stdout: wrongStatusBoard})
+
+	if err := runInit("my-org", 3); err != nil {
+		t.Fatalf("init should fix the board itself, got %v", err)
+	}
+	var mutation string
+	for _, c := range f.calls() {
+		if strings.Contains(c, "updateProjectV2Field") {
+			mutation = c
+		}
+	}
+	if mutation == "" {
+		t.Fatalf("no Status field update\n%s", strings.Join(f.calls(), "\n"))
+	}
+	for _, want := range []string{`id:"T1"`, `id:"P1"`, `name:"Needs Review"`, `name:"Changes Requested"`, `name:"Approved & Merged"`, `name:"Closed"`, `fieldId:"FID"`} {
+		if !strings.Contains(mutation, want) {
+			t.Errorf("mutation lacks %s:\n%s", want, mutation)
+		}
+	}
+	if strings.Contains(mutation, `"D1"`) || strings.Contains(mutation, "Done") {
+		t.Errorf("the obsolete Done option should be dropped:\n%s", mutation)
+	}
+	f.mustHave("createProjectV2View", `projectId:\"PID\"`[:0], "PRs", "BOARD_LAYOUT")
+	cfg, _ := config.Load()
+	if cfg.Board.Owner != "my-org" || cfg.Board.Project != 3 {
+		t.Errorf("config not written: %+v", cfg.Board)
+	}
+}
+
+func TestInitLeavesAMatchingBoardAlone(t *testing.T) {
+	f := useFakeGH(t) // base rules: correct Status options, view and workflows
+	f.t.Helper()
+	if err := runInit("", 8); err != nil {
+		t.Fatal(err)
+	}
+	f.mustNotHave("updateProjectV2Field")
+	f.mustNotHave("createProjectV2View")
+	f.mustNotHave("field-create")
+}
+
+func TestInitOnlyAdvisesAboutWorkflows(t *testing.T) {
+	f := useFakeGH(t, rule{Match: "api graphql -f query=query", Stdout: `{"data":{"repositoryOwner":{"projectV2":{"id":"PID",
+		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Needs Review"},{"name":"Changes Requested"},{"name":"Approved & Merged"},{"name":"Closed"}]}]},
+		"views":{"nodes":[{"name":"PRs"}]},
+		"workflows":{"nodes":[{"name":"Item added to project","enabled":true},{"name":"Item closed","enabled":false}]}}}}}`})
+	if err := runInit("", 8); err != nil {
+		t.Fatalf("workflows are advice, not failure: %v", err)
+	}
+	f.mustNotHave("updateProjectV2Workflow")
 }

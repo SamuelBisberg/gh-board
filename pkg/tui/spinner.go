@@ -10,19 +10,21 @@ import (
 
 var spinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
-// IsInteractive reports whether stdout is a terminal, i.e. whether animated
-// output can be shown at all.
+// spinnerDelay keeps fast calls from flashing a spinner.
+const spinnerDelay = 150 * time.Millisecond
+
+// IsInteractive reports whether stdout is a terminal, i.e. whether
+// interactive prompts and lists can be shown at all.
 func IsInteractive() bool {
 	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
-// RunWithSpinner animates an inline spinner labeled label while fn runs, so
-// network/git operations (fetch, push) don't leave the terminal looking
-// frozen. When stdout isn't a TTY (e.g. CI logs) it prints a single
-// "label..." line instead of animating.
+// RunWithSpinner shows an inline spinner labeled label while fn runs, but
+// only if fn takes longer than a moment. It draws on stderr and only when
+// stderr is a terminal, so piped or scripted output (a printed issue URL,
+// `config get`) stays clean.
 func (t *Theme) RunWithSpinner(label string, fn func() error) error {
-	if !IsInteractive() {
-		fmt.Println(label + "...")
+	if !term.IsTerminal(int(os.Stderr.Fd())) {
 		return fn()
 	}
 
@@ -30,12 +32,16 @@ func (t *Theme) RunWithSpinner(label string, fn func() error) error {
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
+		select {
+		case <-done:
+			return
+		case <-time.After(spinnerDelay):
+		}
+		defer fmt.Fprint(os.Stderr, "\r\033[K")
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
-		i := 0
-		for {
-			fmt.Printf("\r%s %s", t.Info.Render(string(spinnerFrames[i%len(spinnerFrames)])), label)
-			i++
+		for i := 0; ; i++ {
+			fmt.Fprintf(os.Stderr, "\r%s %s", t.Info.Render(string(spinnerFrames[i%len(spinnerFrames)])), label)
 			select {
 			case <-done:
 				return
@@ -47,7 +53,6 @@ func (t *Theme) RunWithSpinner(label string, fn func() error) error {
 	defer func() {
 		close(done)
 		<-stopped
-		fmt.Print("\r\033[K")
 	}()
 	return fn()
 }

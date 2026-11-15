@@ -23,8 +23,9 @@ type Definition struct {
 		Status struct {
 			Name    string `yaml:"name"`
 			Options []struct {
-				Name  string `yaml:"name"`
-				Color string `yaml:"color"`
+				Name        string `yaml:"name"`
+				Color       string `yaml:"color"`
+				Description string `yaml:"description"`
 			} `yaml:"options"`
 		} `yaml:"status"`
 	} `yaml:"fields"`
@@ -58,13 +59,6 @@ func (d *Definition) StatusOptionNames() []string {
 	return names
 }
 
-// ViewState is what the live Board reports.
-type ViewState struct {
-	StatusOptions []string        // option names in order; nil if no Status field
-	Views         []string        // view names
-	Workflows     map[string]bool // workflow name -> enabled
-}
-
 // SettingsURL is where a Board's workflows are configured in the UI.
 func SettingsURL(ownerType, owner string, number int) string {
 	kind := "users"
@@ -74,61 +68,34 @@ func SettingsURL(ownerType, owner string, number int) string {
 	return fmt.Sprintf("https://github.com/%s/%s/projects/%d/workflows", kind, owner, number)
 }
 
-// Check compares a live Board against the definition and returns one
-// human-readable problem (with the manual fix) per mismatch. workflowsURL is
-// where the user fixes workflows; requiredOnly limits the workflow check to
-// the ones the tool depends on.
-func (d *Definition) Check(live ViewState, workflowsURL string, requiredOnly bool) []string {
-	var problems []string
-
-	if !requiredOnly {
-		want := d.StatusOptionNames()
-		switch {
-		case live.StatusOptions == nil:
-			problems = append(problems, fmt.Sprintf("the %s field is missing", d.Fields.Status.Name))
-		case strings.Join(live.StatusOptions, "|") != strings.Join(want, "|"):
-			problems = append(problems, fmt.Sprintf(
-				"the %s field has options [%s], want exactly [%s] in this order (Project settings > Fields > %s; do not delete the field, that detaches every card)",
-				d.Fields.Status.Name, strings.Join(live.StatusOptions, ", "), strings.Join(want, ", "), d.Fields.Status.Name))
-		}
-
-		for _, v := range d.Views {
-			found := false
-			for _, name := range live.Views {
-				found = found || name == v.Name
-			}
-			if !found {
-				problems = append(problems, fmt.Sprintf("the %q view is missing: create a board-layout view grouped by Status", v.Name))
-			}
-		}
-	}
-
+// WorkflowAdvice lists the project workflows the tool would like set a
+// certain way. GitHub has no API to enable, disable or configure them, so
+// these can only be advice: every Status is re-derived from the PR by
+// `sync` anyway, the workflows just make cards move a moment sooner.
+// Only workflows marked required are covered.
+func (d *Definition) WorkflowAdvice(live ViewState, workflowsURL string) []string {
+	var advice []string
 	for _, w := range d.Workflows {
-		if requiredOnly && !w.Required {
+		if !w.Required {
 			continue
 		}
 		enabled, known := live.Workflows[w.Name]
-		switch {
-		case !known:
-			problems = append(problems, fmt.Sprintf(
-				"the %q workflow was not found on the board. Open %s and check it exists (the token also needs the `project` scope: `gh auth refresh -s project`)",
-				w.Name, workflowsURL))
-		case enabled != w.Enabled:
-			problems = append(problems, workflowFix(w.Name, w.Enabled, w.ExpectedAction, workflowsURL))
+		if known && enabled == w.Enabled {
+			continue
 		}
+		advice = append(advice, workflowFix(w.Name, w.Enabled, w.ExpectedAction, workflowsURL))
 	}
-	return problems
+	return advice
 }
 
-// workflowFix explains how to put one workflow in the wanted state. GitHub
-// has no API to enable or configure project workflows, so this is manual.
+// workflowFix explains how to put one workflow in the wanted state.
 func workflowFix(name string, wantEnabled bool, action, url string) string {
 	if !wantEnabled {
-		return fmt.Sprintf("the %q workflow must be OFF (it would race the tool's first Status). Open %s, select %q and turn it off", name, url, name)
+		return fmt.Sprintf("turn OFF %q (it can overwrite the Status the tool just set): %s", name, url)
 	}
-	msg := fmt.Sprintf("the %q workflow must be ON. Open %s, select %q", name, url, name)
+	msg := fmt.Sprintf("turn ON %q", name)
 	if action != "" && !strings.HasPrefix(action, "(") {
-		msg += fmt.Sprintf(", set its action to %q", action)
+		msg += fmt.Sprintf(" with action %q", action)
 	}
-	return msg + " and turn it on (Save and turn on workflow)"
+	return msg + ": " + url
 }

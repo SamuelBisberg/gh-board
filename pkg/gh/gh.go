@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/SamuelBisberg/gh-board/pkg/progress"
 )
 
 // DryRun makes Write print the planned call instead of running it.
@@ -19,15 +21,53 @@ var DryRun bool
 // Out receives dry-run output.
 var Out io.Writer = os.Stdout
 
-func run(args ...string) (string, error) {
-	cmd := exec.Command("gh", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("gh %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+// labels name the slow calls for the progress spinner, by their first two
+// arguments.
+var labels = map[string]string{
+	"api user":             "Checking your account",
+	"api graphql":          "Reading the board",
+	"repo view":            "Reading the repository",
+	"pr view":              "Reading the pull request",
+	"pr create":            "Creating the pull request",
+	"pr ready":             "Marking the pull request ready",
+	"pr edit":              "Requesting reviewers",
+	"issue view":           "Reading the issue",
+	"issue create":         "Creating the issue",
+	"issue develop":        "Linking the branch to the issue",
+	"project view":         "Opening the board",
+	"project field-list":   "Reading the board's fields",
+	"project item-list":    "Reading the board's cards",
+	"project item-add":     "Adding to the board",
+	"project item-edit":    "Updating the card",
+	"project item-delete":  "Removing the card",
+	"project create":       "Creating the board",
+	"project field-create": "Creating the Status field",
+	"project list":         "Listing projects",
+}
+
+func label(args []string) string {
+	if len(args) >= 2 {
+		if l, ok := labels[args[0]+" "+args[1]]; ok {
+			return l
+		}
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return "Running gh " + strings.Join(args[:min(len(args), 2)], " ")
+}
+
+func run(args ...string) (string, error) {
+	var out string
+	err := progress.Run(label(args), func() error {
+		cmd := exec.Command("gh", args...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("gh %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		}
+		out = strings.TrimSpace(stdout.String())
+		return nil
+	})
+	return out, err
 }
 
 // Read runs a gh call that does not change anything.

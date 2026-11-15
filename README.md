@@ -73,11 +73,11 @@ gh board config templates --init      # write the defaults to edit
 | `reviewers.default` | none |
 | `ui.color` | `auto` |
 
-## Board requirements
+## Board setup
 
-The board needs a **Status** field with the six options above, in order, and a board view grouped by Status. `init` creates a missing project and Status field but never edits an existing one.
+`gh board init` sets the board up for you: it creates the Status field (or rewrites its options to the six above, keeping the IDs of options that already exist so cards stay put) and creates the `PRs` board view. Re-running it on a correct board changes nothing.
 
-GitHub has no API to change project workflows, so the tool checks them instead. Before every command, *Item closed*, *Pull request merged*, *Code changes requested* and *Code review approved* must be **on**, and *Item added to project* **off**. If not, the command stops and tells you which to fix at `https://github.com/<users|orgs>/<owner>/projects/<n>/workflows`. The full definition is in [board.yml](pkg/board/board.yml); terms are in [GLOSSARY.md](GLOSSARY.md).
+The one thing GitHub exposes read-only is project workflows. `init` lists any of *Item closed*, *Pull request merged*, *Code changes requested*, *Code review approved* (on) and *Item added to project* (off) that differ, with the link to flip them. They are optional: they only make cards move the instant a review happens, and `gh board sync` re-derives every Status anyway. The full definition is in [board.yml](pkg/board/board.yml); terms are in [GLOSSARY.md](GLOSSARY.md).
 
 ## Status
 

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -125,37 +124,37 @@ func runInit(ownerFlag string, projectFlag int) error {
 
 	live, err := board.ReadLive(cfg.Board.Owner, cfg.Board.Project)
 	if err != nil {
-		return fmt.Errorf("reading board %s #%d: %w", cfg.Board.Owner, cfg.Board.Project, err)
+		return fmt.Errorf("reading board %s #%d: %w (try `gh auth refresh -s project -s read:org`)", cfg.Board.Owner, cfg.Board.Project, err)
 	}
-	if live.StatusOptions == nil {
-		if _, err := gh.Write("project", "field-create", strconv.Itoa(cfg.Board.Project), "--owner", cfg.Board.Owner,
-			"--name", "Status", "--data-type", "SINGLE_SELECT",
-			"--single-select-options", strings.Join(def.StatusOptionNames(), ",")); err != nil {
-			return fmt.Errorf("creating the Status field: %w", err)
-		}
-		theme.Successf("Created the Status field")
-		live.StatusOptions = def.StatusOptionNames()
-	}
-
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 	theme.Successf("Using board %s #%d", cfg.Board.Owner, cfg.Board.Project)
 
+	// Everything GitHub's API allows is done for you: the Status field and
+	// the board view are created or corrected to match board.yml.
+	done, err := def.Setup(cfg.Board.Owner, cfg.Board.Project, live)
+	for _, d := range done {
+		theme.Successf("%s", d)
+	}
+	if err != nil {
+		return err
+	}
+	if len(done) == 0 {
+		theme.Successf("Status field and board view already match board.yml")
+	}
+
+	// Workflows are the one thing GitHub exposes read-only, so they are
+	// advice: sync re-derives every Status regardless.
 	ownerType, _ := gh.Read("api", "users/"+cfg.Board.Owner, "--jq", ".type")
-	problems := def.Check(live, board.SettingsURL(ownerType, cfg.Board.Owner, cfg.Board.Project), false)
-	for _, p := range problems {
-		theme.Warningf("%s", p)
-	}
-	fmt.Println("Verify once in the board's Workflows settings:")
-	for _, w := range def.Workflows {
-		if w.Enabled && w.ExpectedAction != "" {
-			fmt.Printf("  %s -> %s\n", w.Name, w.ExpectedAction)
+	url := board.SettingsURL(ownerType, cfg.Board.Owner, cfg.Board.Project)
+	if advice := def.WorkflowAdvice(live, url); len(advice) > 0 {
+		theme.Warningf("GitHub has no API for project workflows. Optional, so cards move the instant a review happens (`gh board sync` fixes the rest):")
+		for _, a := range advice {
+			fmt.Printf("  - %s\n", a)
 		}
+	} else {
+		theme.Successf("The board's status workflows are set as expected")
 	}
-	if len(problems) > 0 {
-		return fmt.Errorf("the board is not set up as board.yml requires (%d problem(s)); GitHub has no API to change workflows, so fix the above in the browser and re-run `gh board init`", len(problems))
-	}
-	theme.Successf("The board matches board.yml")
 	return nil
 }

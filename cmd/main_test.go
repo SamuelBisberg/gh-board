@@ -173,8 +173,9 @@ func featureBranch(t *testing.T, repo, name string) {
 }
 
 // healthyBoard is a live Board with the required workflows set correctly.
-const healthyBoard = `{"data":{"repositoryOwner":{"projectV2":{
-	"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},
+const healthyBoard = `{"data":{"repositoryOwner":{"projectV2":{"id":"PID",
+	"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Needs Review"},
+		{"name":"Changes Requested"},{"name":"Approved & Merged"},{"name":"Closed"}]}]},"views":{"nodes":[{"name":"PRs"}]},
 	"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},
 		{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},
 		{"name":"Code review approved","enabled":true}]}}}}}`

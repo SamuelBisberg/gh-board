@@ -9,6 +9,7 @@ import (
 	"github.com/SamuelBisberg/gh-board/pkg/board"
 	"github.com/SamuelBisberg/gh-board/pkg/gh"
 	"github.com/SamuelBisberg/gh-board/pkg/git"
+	"github.com/SamuelBisberg/gh-board/pkg/progress"
 	"github.com/SamuelBisberg/gh-board/pkg/tui"
 )
 
@@ -30,6 +31,7 @@ func NewRootCmd() *cobra.Command {
 		Version:       Version,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			gh.DryRun, git.DryRun = dryRun, dryRun
+			progress.Run = tui.New().RunWithSpinner
 		},
 		RunE: func(cmd *cobra.Command, args []string) error { return runList(all) },
 	}
