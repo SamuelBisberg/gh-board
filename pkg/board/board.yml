@@ -1,0 +1,228 @@
+# gh-board: board definition (embedded in the extension; read by `gh board init`)
+#
+# Describes the GitHub Project the extension expects: its Status field, its view,
+# and the built-in project workflows that must be enabled. Captured from
+# https://github.com/orgs/AWS-PLAT-LZ-SAFE/projects/8 on 2026-11-15.
+#
+# `gh board init` can CREATE a missing project and a missing Status field through
+# the API. It never edits an existing field (rewriting a single-select field's options
+# regenerates option IDs and would detach every card from its Status). Views and
+# built-in workflows cannot be created or configured through GitHub's public API, so
+# for those `init` only CHECKS what the API exposes and prints the manual steps below.
+version: 1
+
+board:
+  owner: AWS-PLAT-LZ-SAFE          # overridden by board.org in config
+  number: 8                        # overridden by board.project in config
+  title: "@{{login}}'s Work"       # {{login}} = the logged-in gh user
+  visibility: private
+  # Scopes the gh session needs: `gh auth refresh -s project -s read:org`
+
+# ---------------------------------------------------------------------------
+# Fields
+# ---------------------------------------------------------------------------
+fields:
+  status:
+    name: Status
+    type: single_select
+    required: true
+    # Order matters: it is the left-to-right column order on the board view.
+    options:
+      - name: Todo
+        color: GRAY
+        description: ""
+        cards: issue
+        owner: tool                  # `todo`, `sync` (restore after a closed-unmerged PR)
+      - name: In Progress
+        color: YELLOW
+        description: This is actively being worked on
+        cards: pull_request
+        owner: tool                  # draft PRs: `new`, `push`, `sync`
+      - name: Needs Review
+        color: GREEN
+        description: ""
+        cards: pull_request
+        owner: tool                  # ready PRs: `open`, `sync`
+      - name: Changes Requested
+        color: ORANGE
+        description: ""
+        cards: pull_request
+        owner: tool+workflow         # tool: `sync`; workflow: "Code changes requested"
+      - name: Approved & Merged
+        color: GRAY
+        description: ""
+        cards: pull_request
+        owner: tool+workflow         # tool: `sync`; workflows: "Code review approved", "Pull request merged"
+      - name: Closed
+        color: RED
+        description: ""
+        cards: issue, pull_request
+        owner: workflow              # workflow "Item closed"; the tool never writes or overwrites it
+
+  # Built-in fields the extension reads or relies on. They exist on every project and
+  # are not created by `init`.
+  built_in:
+    - Title                          # card title
+    - Assignees                      # filled by `--assignee @me` on issues and PRs
+    - Repository                     # which repo the card's issue/PR is in
+    - Linked pull requests           # filled by "Closes #N"
+    - Reviewers                      # filled by GitHub from review requests (`open -r`, `review`)
+    - Created
+    - Updated
+    - Closed
+
+  # Present on the current board but not used by the extension. Left alone.
+  unused:
+    - Labels
+    - Milestone
+    - Parent issue
+    - Sub-issues progress
+    - Priority                       # single select, currently has no options
+    - Start date
+
+# ---------------------------------------------------------------------------
+# Views
+# ---------------------------------------------------------------------------
+views:
+  - name: PRs
+    layout: BOARD_LAYOUT
+    group_by: Status                 # columns, in the order of the Status options above
+    filter: ""                       # empty: every card is shown
+    sort: []
+    fields:                          # fields shown on each card
+      - Title
+      - Assignees
+      - Status
+      - Linked pull requests
+      - Repository
+      - Reviewers
+      - Sub-issues progress
+      - Created
+      - Updated
+      - Closed
+      - Priority
+      - Start date
+    manual: true                     # cannot be created via the API: create it in the UI
+
+# ---------------------------------------------------------------------------
+# Built-in project workflows (Project settings -> Workflows)
+# `enabled` is what GitHub reports. `expected_action` is what each workflow should be
+# configured to do; the API does not expose that configuration, so `init` checks only
+# that the workflow is enabled/disabled as listed and tells you to verify the rest.
+# ---------------------------------------------------------------------------
+workflows:
+  - name: Item added to project
+    number: 6
+    enabled: false
+    reason: >
+      Must stay OFF. The extension sets the first Status itself when it adds a card;
+      this workflow would race it and could overwrite it with a default.
+
+  - name: Item closed
+    number: 1
+    enabled: true
+    expected_action: "Set Status = Closed"
+    reason: >
+      Closed issues and closed-unmerged PRs land in Closed. The tool ignores Closed
+      cards, so this workflow owns that column.
+
+  - name: Pull request merged
+    number: 2
+    enabled: true
+    expected_action: "Set Status = Approved & Merged"
+    reason: Merged PRs move to Approved & Merged even if the tool has not synced yet.
+
+  - name: Code changes requested
+    number: 7
+    enabled: true
+    expected_action: "Set Status = Changes Requested"
+    reason: Agrees with the tool's mapping, so the card moves the moment a reviewer asks.
+
+  - name: Code review approved
+    number: 8
+    enabled: true
+    expected_action: "Set Status = Approved & Merged"
+    reason: Agrees with the tool's mapping (approved while still open).
+
+  - name: Pull request linked to issue
+    number: 5
+    enabled: true
+    expected_action: "(verify in the UI)"
+    reason: >
+      Fires when `new --issue N` links the PR to its issue and may change the ISSUE
+      card's Status. Harmless: the tool removes the issue card in the same command.
+
+  - name: Auto-archive items
+    number: 9
+    enabled: true
+    expected_action: "Archive items matching the project's archive filter"
+    reason: >
+      Clears old Closed and Approved & Merged cards. Keep the filter limited to those
+      two Statuses so open work is never archived.
+
+  - name: Auto-close issue
+    number: 3
+    enabled: false
+    reason: Off. Issues are closed by the merged PR's `Closes #N`, not by the board.
+
+  - name: When an item in the project has sub-issues
+    number: 4
+    enabled: true
+    expected_action: "(unused)"
+    reason: Built-in default. Not used by the extension.
+
+# ---------------------------------------------------------------------------
+# State transitions: what moves a card, and who does it.
+# `tool` = a gh board command; `workflow` = a built-in project workflow.
+# When both can move the same card they must agree; the tool always re-derives the
+# Status from the PR (source of truth), so a disagreement is corrected on the next sync.
+# ---------------------------------------------------------------------------
+transitions:
+  - on: "`gh board todo` creates an issue"
+    to: Todo
+    by: tool
+  - on: "`gh board new` / `push` opens a draft PR (card added)"
+    to: In Progress
+    by: tool
+  - on: "`gh board new --issue N` links the PR"
+    effect: "issue card is removed; the PR card replaces it"
+    by: tool
+  - on: "`gh board open` marks the PR ready (or opens it non-draft)"
+    to: Needs Review
+    by: tool
+  - on: "a reviewer requests changes"
+    to: Changes Requested
+    by: workflow          # "Code changes requested"; the tool confirms on `sync`
+  - on: "a reviewer approves while the PR is still open"
+    to: Approved & Merged
+    by: workflow          # "Code review approved"; the tool confirms on `sync`
+  - on: "the PR is merged"
+    to: Approved & Merged
+    by: workflow          # "Pull request merged"; the tool confirms on `sync`
+  - on: "an issue or a PR is closed without merging"
+    to: Closed
+    by: workflow          # "Item closed"; the tool never writes Closed
+  - on: "a PR started from an issue is closed unmerged and the issue is still open"
+    to: Todo
+    effect: "the issue is restored as a Todo card"
+    by: tool              # `sync`
+  - on: "the card sits in Closed or Approved & Merged long enough"
+    effect: "archived"
+    by: workflow          # "Auto-archive items"
+
+# ---------------------------------------------------------------------------
+# What `gh board init` does with this file
+# ---------------------------------------------------------------------------
+init:
+  create_if_missing:
+    - project              # `gh project create`
+    - field: Status        # `gh project field-create` with the options above, in order
+  check:
+    - status_options_exist_with_exact_names
+    - status_option_order
+    - view_exists: PRs     # reported; cannot be fixed through the API
+    - workflows_enabled_as_listed
+  never:
+    - edit_existing_field_options
+    - create_views_or_workflows
+  on_mismatch: print_manual_steps_then_exit_nonzero
