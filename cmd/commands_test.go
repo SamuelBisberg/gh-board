@@ -442,7 +442,7 @@ func TestTeamAddValidatesOrgMembership(t *testing.T) {
 
 func TestInitCreatesMissingStatusField(t *testing.T) {
 	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
-		"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
+		"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":true},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
 	if err := runInit("", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -514,7 +514,7 @@ func TestConfigTemplatesInit(t *testing.T) {
 func TestInitDefaultsToTheActiveAccount(t *testing.T) {
 	f := useFakeGH(t, rule{Match: "project create", Stdout: `{"number":5}`}, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
 		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Needs Review"},{"name":"Changes Requested"},{"name":"Approved & Merged"},{"name":"Closed"}]}]},
-		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
+		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":true},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
 	cfg, _ := config.Load()
 	cfg.Board.Owner, cfg.Board.Project = "", 0
 	cfg.Save()
@@ -533,7 +533,7 @@ func TestInitCreatesABoardForTheActiveAccount(t *testing.T) {
 	f := useFakeGH(t,
 		rule{Match: "project create", Stdout: `{"number":4}`},
 		rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
-			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
+			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":true},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
 	cfg, _ := config.Load()
 	cfg.Board.Owner, cfg.Board.Project = "", 0
 	cfg.Save()
@@ -551,7 +551,7 @@ func TestInitCreatesABoardForTheActiveAccount(t *testing.T) {
 func TestChangingOwnerForgetsTheOldProjectNumber(t *testing.T) {
 	useFakeGH(t, rule{Match: "project create", Stdout: `{"number":2}`},
 		rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
-			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
+			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":true},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
 	if err := runInit("someone-else", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -794,8 +794,8 @@ func TestInitWithoutTitleKeepsTheConfiguredBoard(t *testing.T) {
 func TestGuideWorkflowsOpensPagesAndVerifies(t *testing.T) {
 	def, _ := board.LoadDefinition()
 	steps := def.WorkflowSteps(board.ViewState{Workflows: map[string]bool{"Item added to project": true}}, "https://github.com/users/me/projects/3/workflows")
-	if len(steps) != 5 {
-		t.Fatalf("steps = %d, want the 4 workflows to enable plus the one to disable", len(steps))
+	if len(steps) != 7 {
+		t.Fatalf("steps = %d, want the 6 workflows to enable plus the one to disable", len(steps))
 	}
 	var opened []string
 	old := [3]any{openURL, pickOne, confirm}
@@ -805,7 +805,7 @@ func TestGuideWorkflowsOpensPagesAndVerifies(t *testing.T) {
 	openURL = func(u string) error { opened = append(opened, u); return nil }
 	confirm = func(string) (bool, error) { return true, nil }
 	// First step: "Done" before it took (re-read still wrong), then "Done" again; the rest are skipped.
-	picks := []int{0, 0, 2, 2, 2, 2}
+	picks := []int{0, 0, 2, 2, 2, 2, 2, 2}
 	pickOne = func(string, []string) (int, error) { p := picks[0]; picks = picks[1:]; return p, nil }
 	rereads := 0
 	reread := func() (board.ViewState, error) {
@@ -815,7 +815,7 @@ func TestGuideWorkflowsOpensPagesAndVerifies(t *testing.T) {
 	if err := guideWorkflows(tui.New(), steps, "me", 3, reread); err != nil {
 		t.Fatal(err)
 	}
-	if rereads != 2 || len(opened) != 5 || !strings.HasSuffix(opened[0], "/projects/3/workflows/6") {
+	if rereads != 2 || len(opened) != 7 || !strings.HasSuffix(opened[0], "/projects/3/workflows/6") {
 		t.Errorf("rereads=%d opened=%v", rereads, opened)
 	}
 }

@@ -33,12 +33,13 @@ type Definition struct {
 		Name string `yaml:"name"`
 	} `yaml:"views"`
 	Workflows []struct {
-		Name           string `yaml:"name"`
-		Number         int    `yaml:"number"`
-		Enabled        bool   `yaml:"enabled"`
-		ExpectedAction string `yaml:"expected_action"`
-		Required       bool   `yaml:"required"`
-		Reason         string `yaml:"reason"`
+		Name           string   `yaml:"name"`
+		Number         int      `yaml:"number"`
+		Enabled        bool     `yaml:"enabled"`
+		ExpectedAction string   `yaml:"expected_action"`
+		Required       bool     `yaml:"required"`
+		Reason         string   `yaml:"reason"`
+		Instructions   []string `yaml:"instructions"`
 	} `yaml:"workflows"`
 }
 
@@ -96,11 +97,12 @@ func (d *Definition) WorkflowAdvice(live ViewState, workflowsURL string) []strin
 
 // WorkflowStep is one required workflow that is not yet in the wanted state.
 type WorkflowStep struct {
-	Name   string
-	Enable bool   // wanted state
-	Action string // what the workflow should do when enabled ("" if none)
-	Reason string
-	URL    string // the workflow's own settings page
+	Name         string
+	Enable       bool   // wanted state
+	Action       string // what the workflow should do when enabled ("" if none)
+	Reason       string
+	Instructions []string // explicit clicks from board.yml; empty means derive them
+	URL          string   // the workflow's own settings page
 }
 
 // WorkflowSteps lists the required workflows that differ from the
@@ -124,7 +126,7 @@ func (d *Definition) WorkflowSteps(live ViewState, workflowsURL string) []Workfl
 			num = n
 		}
 		steps = append(steps, WorkflowStep{
-			Name: w.Name, Enable: w.Enabled, Action: action, Reason: w.Reason,
+			Name: w.Name, Enable: w.Enabled, Action: action, Reason: w.Reason, Instructions: w.Instructions,
 			URL: fmt.Sprintf("%s/%d", workflowsURL, num),
 		})
 	}

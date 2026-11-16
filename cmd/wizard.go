@@ -19,6 +19,9 @@ var (
 // workflowInstructions says what to click on one workflow's page.
 func workflowInstructions(s board.WorkflowStep) []string {
 	lines := []string{fmt.Sprintf("If the page isn't on %q, pick it in the left-hand list.", s.Name)}
+	if len(s.Instructions) > 0 {
+		return append(lines, s.Instructions...)
+	}
 	if !s.Enable {
 		return append(lines, "Switch the \"Enabled\" toggle OFF.")
 	}

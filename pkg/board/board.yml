@@ -164,15 +164,28 @@ workflows:
   - name: Auto-archive items
     number: 9
     enabled: true
-    expected_action: "Archive items matching the project's archive filter"
+    required: true
+    expected_action: 'Archive items matching: status:"Approved & Merged",Closed updated:<@today-2w'
+    instructions:                   # shown by the `init` wizard instead of the generic steps
+      - 'In the Filters box, replace the default with:  status:"Approved & Merged",Closed updated:<@today-2w'
+      - 'Keep the filter to those two Statuses so open work is never archived (the default is:closed filter would miss merged PRs).'
+      - 'The action below it must read "Archive item". Click "Save and turn on workflow".'
     reason: >
-      Clears old Closed and Approved & Merged cards. Keep the filter limited to those
-      two Statuses so open work is never archived.
+      Clears old Approved & Merged and Closed cards after two weeks, so the board
+      only shows live work.
 
   - name: Auto-close issue
     number: 3
-    enabled: false
-    reason: Off. Issues are closed by the merged PR's `Closes #N`, not by the board.
+    enabled: true
+    required: true
+    expected_action: "When Status = Closed: close the issue"
+    instructions:                   # shown by the `init` wizard instead of the generic steps
+      - 'Under "When the status is updated", open the dropdown and choose Status: Closed.'
+      - 'The action below it must read "Close the issue".'
+      - 'Click "Save and turn on workflow".'
+    reason: >
+      Moving a card to Closed closes its issue, so the board and the issue never
+      disagree. Issues are still closed by a merged PR's `Closes #N`.
 
   - name: When an item in the project has sub-issues
     number: 4
