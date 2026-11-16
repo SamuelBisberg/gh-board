@@ -119,9 +119,13 @@ func (d *Definition) WorkflowSteps(live ViewState, workflowsURL string) []Workfl
 		if strings.HasPrefix(action, "(") {
 			action = ""
 		}
+		num := w.Number // the board.yml number, for workflows the API doesn't list yet
+		if n := live.WorkflowNums[w.Name]; n > 0 {
+			num = n
+		}
 		steps = append(steps, WorkflowStep{
 			Name: w.Name, Enable: w.Enabled, Action: action, Reason: w.Reason,
-			URL: fmt.Sprintf("%s/%d", workflowsURL, w.Number),
+			URL: fmt.Sprintf("%s/%d", workflowsURL, num),
 		})
 	}
 	return steps

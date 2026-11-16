@@ -12,6 +12,7 @@ type ViewState struct {
 	StatusOptions []string        // option names in order; nil if no Status field
 	Views         []string        // view names
 	Workflows     map[string]bool // workflow name -> enabled
+	WorkflowNums  map[string]int  // workflow name -> its number in the workflow page URL
 }
 
 type liveBoard struct {
@@ -32,6 +33,7 @@ type liveBoard struct {
 	Workflows struct {
 		Nodes []struct {
 			Name    string `json:"name"`
+			Number  int    `json:"number"`
 			Enabled bool   `json:"enabled"`
 		} `json:"nodes"`
 	} `json:"workflows"`
@@ -39,7 +41,7 @@ type liveBoard struct {
 
 const liveQuery = `query($o:String!,$n:Int!){repositoryOwner(login:$o){... on ProjectV2Owner{projectV2(number:$n){id ` +
 	`fields(first:50){nodes{... on ProjectV2SingleSelectField{name options{name}}}}` +
-	`views(first:20){nodes{name}} workflows(first:30){nodes{name enabled}}}}}}`
+	`views(first:20){nodes{name}} workflows(first:30){nodes{name number enabled}}}}}}`
 
 // ReadLive reads the live Board: its Status options, views and workflows.
 func ReadLive(owner string, number int) (ViewState, error) {
@@ -54,7 +56,7 @@ func ReadLive(owner string, number int) (ViewState, error) {
 		return ViewState{}, err
 	}
 	p := r.Data.Owner.ProjectV2
-	st := ViewState{ProjectID: p.ID, Workflows: map[string]bool{}}
+	st := ViewState{ProjectID: p.ID, Workflows: map[string]bool{}, WorkflowNums: map[string]int{}}
 	for _, f := range p.Fields.Nodes {
 		if f.Name == "Status" {
 			st.StatusOptions = []string{}
@@ -68,6 +70,7 @@ func ReadLive(owner string, number int) (ViewState, error) {
 	}
 	for _, w := range p.Workflows.Nodes {
 		st.Workflows[w.Name] = w.Enabled
+		st.WorkflowNums[w.Name] = w.Number
 	}
 	return st, nil
 }
