@@ -38,6 +38,7 @@ type Definition struct {
 		Enabled        bool   `yaml:"enabled"`
 		ExpectedAction string `yaml:"expected_action"`
 		Required       bool   `yaml:"required"`
+		Reason         string `yaml:"reason"`
 	} `yaml:"workflows"`
 }
 
@@ -59,13 +60,18 @@ func (d *Definition) StatusOptionNames() []string {
 	return names
 }
 
-// SettingsURL is where a Board's workflows are configured in the UI.
-func SettingsURL(ownerType, owner string, number int) string {
+// URL is where a Board lives on github.com.
+func URL(ownerType, owner string, number int) string {
 	kind := "users"
 	if ownerType == "Organization" {
 		kind = "orgs"
 	}
-	return fmt.Sprintf("https://github.com/%s/%s/projects/%d/workflows", kind, owner, number)
+	return fmt.Sprintf("https://github.com/%s/%s/projects/%d", kind, owner, number)
+}
+
+// SettingsURL is where a Board's workflows are configured in the UI.
+func SettingsURL(ownerType, owner string, number int) string {
+	return URL(ownerType, owner, number) + "/workflows"
 }
 
 // WorkflowAdvice lists the project workflows the tool would like set a
@@ -86,6 +92,39 @@ func (d *Definition) WorkflowAdvice(live ViewState, workflowsURL string) []strin
 		advice = append(advice, workflowFix(w.Name, w.Enabled, w.ExpectedAction, workflowsURL))
 	}
 	return advice
+}
+
+// WorkflowStep is one required workflow that is not yet in the wanted state.
+type WorkflowStep struct {
+	Name   string
+	Enable bool   // wanted state
+	Action string // what the workflow should do when enabled ("" if none)
+	Reason string
+	URL    string // the workflow's own settings page
+}
+
+// WorkflowSteps lists the required workflows that differ from the
+// definition, each with the page where it is flipped. workflowsURL is the
+// value of SettingsURL.
+func (d *Definition) WorkflowSteps(live ViewState, workflowsURL string) []WorkflowStep {
+	var steps []WorkflowStep
+	for _, w := range d.Workflows {
+		if !w.Required {
+			continue
+		}
+		if enabled, known := live.Workflows[w.Name]; known && enabled == w.Enabled {
+			continue
+		}
+		action := w.ExpectedAction
+		if strings.HasPrefix(action, "(") {
+			action = ""
+		}
+		steps = append(steps, WorkflowStep{
+			Name: w.Name, Enable: w.Enabled, Action: action, Reason: w.Reason,
+			URL: fmt.Sprintf("%s/%d", workflowsURL, w.Number),
+		})
+	}
+	return steps
 }
 
 // workflowFix explains how to put one workflow in the wanted state.

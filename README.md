@@ -47,6 +47,7 @@ gh board review bob                   # request reviewers later
 gh board team add ana-lopez-1234 ana  # alias for -r ana
 gh board team default ana             # requested on every `open`
 gh board sync [--current]
+gh board browse [-p]                  # open the board on github.com (-p: print the URL)
 gh board init [--owner O] [--title "Board name"]
 gh board config list|get|set|templates
 ```
@@ -77,7 +78,7 @@ gh board config templates --init      # write the defaults to edit
 
 `gh board init` asks what to name your board (default `@<you>'s Work`). A board with that exact title is reused after a confirmation, otherwise it is created; `--title` does the same without prompting. Then it sets the board up for you: it creates the Status field (or rewrites its options to the six above, keeping the IDs of options that already exist so cards stay put) and creates the `PRs` board view. Re-running it on a correct board changes nothing.
 
-The one thing GitHub exposes read-only is project workflows. `init` lists any of *Item closed*, *Pull request merged*, *Code changes requested*, *Code review approved* (on) and *Item added to project* (off) that differ, with the link to flip them. They are optional: they only make cards move the instant a review happens, and `gh board sync` re-derives every Status anyway. The full definition is in [board.yml](pkg/board/board.yml); terms are in [GLOSSARY.md](GLOSSARY.md).
+The one thing GitHub exposes read-only is project workflows. `init` lists any of *Item closed*, *Pull request merged*, *Code changes requested*, *Code review approved* (on) and *Item added to project* (off) that differ, with the link to flip them. In a terminal, `init` offers to walk you through them: it opens each workflow's page in your browser, tells you what to click, then re-reads the board to confirm the change took (skip any step you like). Piped or scripted, it just prints the list. They are optional: they only make cards move the instant a review happens, and `gh board sync` re-derives every Status anyway. The full definition is in [board.yml](pkg/board/board.yml); terms are in [GLOSSARY.md](GLOSSARY.md).
 
 ## Status
 

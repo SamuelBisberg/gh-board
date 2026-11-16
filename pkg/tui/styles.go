@@ -31,6 +31,9 @@ func New() *Theme {
 	}
 }
 
+// Header renders s as a bold heading.
+func (t *Theme) Header(s string) string { return t.Info.Bold(true).Render(s) }
+
 // Successf prints a "✓"-prefixed success message to stdout.
 func (t *Theme) Successf(format string, a ...any) {
 	fmt.Println(t.Success.Render("✓") + " " + fmt.Sprintf(format, a...))

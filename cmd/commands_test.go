@@ -7,10 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SamuelBisberg/gh-board/pkg/board"
 	"github.com/SamuelBisberg/gh-board/pkg/config"
 	"github.com/SamuelBisberg/gh-board/pkg/gh"
 	"github.com/SamuelBisberg/gh-board/pkg/git"
 	"github.com/SamuelBisberg/gh-board/pkg/progress"
+	"github.com/SamuelBisberg/gh-board/pkg/tui"
 )
 
 func prJSON(url string, draft bool, state, decision, author string) string {
@@ -21,7 +23,7 @@ func prJSON(url string, draft bool, state, decision, author string) string {
 
 func TestNewCmdRegistersEverySubcommand(t *testing.T) {
 	root := NewRootCmd()
-	for _, name := range []string{"todo", "new", "push", "open", "review", "team", "sync", "init", "config"} {
+	for _, name := range []string{"todo", "new", "push", "open", "review", "team", "sync", "init", "config", "browse"} {
 		found := false
 		for _, c := range root.Commands() {
 			found = found || c.Name() == name
@@ -786,5 +788,51 @@ func TestInitWithoutTitleKeepsTheConfiguredBoard(t *testing.T) {
 	f.mustNotHave("project list")
 	if cfg, _ := config.Load(); cfg.Board.Project != 7 {
 		t.Errorf("project = %d, want 7", cfg.Board.Project)
+	}
+}
+
+func TestGuideWorkflowsOpensPagesAndVerifies(t *testing.T) {
+	def, _ := board.LoadDefinition()
+	steps := def.WorkflowSteps(board.ViewState{Workflows: map[string]bool{"Item added to project": true}}, "https://github.com/users/me/projects/3/workflows")
+	if len(steps) != 5 {
+		t.Fatalf("steps = %d, want the 4 workflows to enable plus the one to disable", len(steps))
+	}
+	var opened []string
+	old := [3]any{openURL, pickOne, confirm}
+	t.Cleanup(func() {
+		openURL, pickOne, confirm = old[0].(func(string) error), old[1].(func(string, []string) (int, error)), old[2].(func(string) (bool, error))
+	})
+	openURL = func(u string) error { opened = append(opened, u); return nil }
+	confirm = func(string) (bool, error) { return true, nil }
+	// First step: "Done" before it took (re-read still wrong), then "Done" again; the rest are skipped.
+	picks := []int{0, 0, 2, 2, 2, 2}
+	pickOne = func(string, []string) (int, error) { p := picks[0]; picks = picks[1:]; return p, nil }
+	rereads := 0
+	reread := func() (board.ViewState, error) {
+		rereads++
+		return board.ViewState{Workflows: map[string]bool{steps[0].Name: rereads > 1, "Item closed": true}}, nil
+	}
+	if err := guideWorkflows(tui.New(), steps, "me", 3, reread); err != nil {
+		t.Fatal(err)
+	}
+	if rereads != 2 || len(opened) != 5 || !strings.HasSuffix(opened[0], "/projects/3/workflows/6") {
+		t.Errorf("rereads=%d opened=%v", rereads, opened)
+	}
+}
+
+func TestBrowseOpensTheBoard(t *testing.T) {
+	useFakeGH(t, rule{Match: "api users/", Stdout: "Organization"})
+	cfg, _ := config.Load()
+	cfg.Board.Owner, cfg.Board.Project = "my-org", 3
+	cfg.Save()
+	var opened string
+	old := openURL
+	t.Cleanup(func() { openURL = old })
+	openURL = func(u string) error { opened = u; return nil }
+	if err := runBrowse(false); err != nil {
+		t.Fatal(err)
+	}
+	if opened != "https://github.com/orgs/my-org/projects/3" {
+		t.Errorf("opened %q", opened)
 	}
 }

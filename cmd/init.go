@@ -247,7 +247,11 @@ func runInit(ownerFlag, titleFlag string) error {
 	// advice: sync re-derives every Status regardless.
 	ownerType, _ := gh.Read("api", "users/"+cfg.Board.Owner, "--jq", ".type")
 	url := board.SettingsURL(ownerType, cfg.Board.Owner, cfg.Board.Project)
-	if advice := def.WorkflowAdvice(live, url); len(advice) > 0 {
+	if steps := def.WorkflowSteps(live, url); len(steps) > 0 && tui.IsInteractive() {
+		return guideWorkflows(theme, steps, cfg.Board.Owner, cfg.Board.Project, func() (board.ViewState, error) {
+			return board.ReadLive(cfg.Board.Owner, cfg.Board.Project)
+		})
+	} else if advice := def.WorkflowAdvice(live, url); len(advice) > 0 {
 		theme.Warningf("GitHub has no API for project workflows. Optional, so cards move the instant a review happens (`gh board sync` fixes the rest):")
 		for _, a := range advice {
 			fmt.Printf("  - %s\n", a)

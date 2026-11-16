@@ -38,7 +38,7 @@ func NewRootCmd() *cobra.Command {
 	root.Flags().BoolVar(&all, "all", false, "list Todo issues of every repo")
 	root.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "print the planned gh/git calls and change nothing")
 	root.AddCommand(newTodoCmd(), newNewCmd(), newPushCmd(), newOpenCmd(), newReviewCmd(),
-		newTeamCmd(), newSyncCmd(), newInitCmd(), newConfigCmd())
+		newTeamCmd(), newSyncCmd(), newInitCmd(), newConfigCmd(), newBrowseCmd())
 	return root
 }
 
