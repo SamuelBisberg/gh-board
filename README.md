@@ -7,7 +7,7 @@ A [GitHub CLI](https://cli.github.com) extension that keeps a GitHub Project boa
 ```sh
 gh extension install SamuelBisberg/gh-board
 gh auth refresh -s project -s read:org
-gh board init        # uses your active gh account; pick or create a board
+gh board init        # uses your active gh account; name your board (reused if it exists)
 ```
 
 ## Daily flow
@@ -47,7 +47,7 @@ gh board review bob                   # request reviewers later
 gh board team add ana-lopez-1234 ana  # alias for -r ana
 gh board team default ana             # requested on every `open`
 gh board sync [--current]
-gh board init [--owner O] [--project N]
+gh board init [--owner O] [--title "Board name"]
 gh board config list|get|set|templates
 ```
 
@@ -75,7 +75,7 @@ gh board config templates --init      # write the defaults to edit
 
 ## Board setup
 
-`gh board init` sets the board up for you: it creates the Status field (or rewrites its options to the six above, keeping the IDs of options that already exist so cards stay put) and creates the `PRs` board view. Re-running it on a correct board changes nothing.
+`gh board init` asks what to name your board (default `@<you>'s Work`). A board with that exact title is reused after a confirmation, otherwise it is created; `--title` does the same without prompting. Then it sets the board up for you: it creates the Status field (or rewrites its options to the six above, keeping the IDs of options that already exist so cards stay put) and creates the `PRs` board view. Re-running it on a correct board changes nothing.
 
 The one thing GitHub exposes read-only is project workflows. `init` lists any of *Item closed*, *Pull request merged*, *Code changes requested*, *Code review approved* (on) and *Item added to project* (off) that differ, with the link to flip them. They are optional: they only make cards move the instant a review happens, and `gh board sync` re-derives every Status anyway. The full definition is in [board.yml](pkg/board/board.yml); terms are in [GLOSSARY.md](GLOSSARY.md).
 

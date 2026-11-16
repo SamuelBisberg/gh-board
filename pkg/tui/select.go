@@ -41,3 +41,10 @@ func Confirm(title string) (bool, error) {
 	}
 	return ok, err
 }
+
+// Input asks for a line of text, pre-filled with def. Esc aborts.
+func Input(title, def string) (string, error) {
+	v := def
+	err := huh.NewInput().Title(title).Value(&v).Run()
+	return v, err
+}

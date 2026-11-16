@@ -12,17 +12,119 @@ import (
 )
 
 func newInitCmd() *cobra.Command {
-	var owner string
-	var project int
+	var owner, title string
 	c := &cobra.Command{
 		Use:   "init",
-		Short: "Pick your Board, check it against board.yml and write the config",
+		Short: "Name your Board, check it against board.yml and write the config",
 		Args:  cobra.NoArgs,
-		RunE:  func(cmd *cobra.Command, args []string) error { return runInit(owner, project) },
+		RunE:  func(cmd *cobra.Command, args []string) error { return runInit(owner, title) },
 	}
 	c.Flags().StringVar(&owner, "owner", "", "user or organisation that owns the Board (default: you)")
-	c.Flags().IntVar(&project, "project", 0, "project number (skips the picker)")
+	c.Flags().StringVar(&title, "title", "", "Board name: reuse the Board with this exact title, or create it (skips the prompt)")
 	return c
+}
+
+type project struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+}
+
+// listProjects returns the owner's projects.
+func listProjects(owner string) ([]project, error) {
+	out, err := gh.Read("project", "list", "--owner", owner, "--limit", "200", "--format", "json")
+	if err != nil {
+		return nil, fmt.Errorf("listing projects: %w (try `gh auth refresh -s project -s read:org`)", err)
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+	var list struct {
+		Projects []project `json:"projects"`
+	}
+	if err := jsonUnmarshal(out, &list); err != nil {
+		return nil, err
+	}
+	return list.Projects, nil
+}
+
+// withTitle returns the projects whose title is exactly title.
+func withTitle(ps []project, title string) []project {
+	var found []project
+	for _, p := range ps {
+		if p.Title == title {
+			found = append(found, p)
+		}
+	}
+	return found
+}
+
+func duplicateTitleError(title string, dups []project) error {
+	nums := make([]string, len(dups))
+	for i, d := range dups {
+		nums[i] = fmt.Sprintf("#%d", d.Number)
+	}
+	return fmt.Errorf("several boards are titled %q (%s): rename all but one on GitHub", title, strings.Join(nums, ", "))
+}
+
+// resolveByTitle finds the Board titled title among ps without asking: 0 if
+// none exists (create it), its number if one does.
+func resolveByTitle(ps []project, title string) (int, error) {
+	switch found := withTitle(ps, title); len(found) {
+	case 0:
+		return 0, nil
+	case 1:
+		return found[0].Number, nil
+	default:
+		return 0, duplicateTitleError(title, found)
+	}
+}
+
+// promptBoard asks for the Board's name until it names a Board to reuse
+// (its number) or a free title (0, create it). The configured Board is
+// reused without asking again.
+func promptBoard(ps []project, configured int, defaultTitle string) (number int, title string, err error) {
+	prefill := defaultTitle
+	for _, p := range ps {
+		if p.Number == configured {
+			prefill = p.Title
+		}
+	}
+	for {
+		answer, err := tui.Input("Board name?", prefill)
+		if err != nil {
+			return 0, "", err
+		}
+		title = strings.TrimSpace(answer)
+		if title == "" {
+			title = defaultTitle
+		}
+		prefill = title
+		found := withTitle(ps, title)
+		switch {
+		case len(found) == 0:
+			return 0, title, nil
+		case len(found) == 1 && found[0].Number == configured:
+			return configured, title, nil
+		case len(found) == 1:
+			ok, err := tui.Confirm(fmt.Sprintf("Use existing board #%d %q?", found[0].Number, title))
+			if err != nil {
+				return 0, "", err
+			}
+			if ok {
+				return found[0].Number, title, nil
+			}
+		default:
+			labels := make([]string, len(found))
+			for i, f := range found {
+				labels[i] = fmt.Sprintf("#%d %s", f.Number, f.Title)
+			}
+			idx, err := tui.PickOne("Several boards have that title. Which one?", labels)
+			if err != nil {
+				return 0, "", err
+			}
+			return found[idx].Number, title, nil
+		}
+	}
 }
 
 // chooseOwner returns whose board to use: --owner, else the configured
@@ -51,7 +153,7 @@ func chooseOwner(flag, configured, login string) (string, error) {
 	return login, nil
 }
 
-func runInit(ownerFlag string, projectFlag int) error {
+func runInit(ownerFlag, titleFlag string) error {
 	if err := checkAuth(); err != nil {
 		return err
 	}
@@ -77,35 +179,32 @@ func runInit(ownerFlag string, projectFlag int) error {
 	}
 	cfg.Board.Owner = owner
 
-	if projectFlag > 0 {
-		cfg.Board.Project = projectFlag
-	} else if tui.IsInteractive() {
-		var list struct {
-			Projects []struct {
-				Number int    `json:"number"`
-				Title  string `json:"title"`
-			} `json:"projects"`
-		}
-		if err := gh.ReadJSON(&list, "project", "list", "--owner", cfg.Board.Owner, "--format", "json"); err != nil {
-			return fmt.Errorf("listing projects: %w (try `gh auth refresh -s project -s read:org`)", err)
-		}
-		labels := []string{"Create a new board"}
-		for _, p := range list.Projects {
-			labels = append(labels, fmt.Sprintf("#%d %s", p.Number, p.Title))
-		}
-		idx, err := tui.PickOne("Which board?", labels)
+	defaultTitle := strings.ReplaceAll(def.Board.Title, "{{login}}", login)
+	title := defaultTitle
+	titleFlag = strings.TrimSpace(titleFlag)
+	switch {
+	case titleFlag == "" && cfg.Board.Project > 0 && !tui.IsInteractive():
+		// scripted re-run: keep the configured Board
+	default:
+		ps, err := listProjects(cfg.Board.Owner)
 		if err != nil {
 			return err
 		}
-		if idx > 0 {
-			cfg.Board.Project = list.Projects[idx-1].Number
-		} else {
-			cfg.Board.Project = 0
+		switch {
+		case titleFlag != "":
+			title = titleFlag
+			cfg.Board.Project, err = resolveByTitle(ps, title)
+		case tui.IsInteractive():
+			cfg.Board.Project, title, err = promptBoard(ps, cfg.Board.Project, defaultTitle)
+		default:
+			cfg.Board.Project, err = resolveByTitle(ps, title)
+		}
+		if err != nil {
+			return err
 		}
 	}
 
 	if cfg.Board.Project == 0 {
-		title := strings.ReplaceAll(def.Board.Title, "{{login}}", login)
 		var created struct {
 			Number int `json:"number"`
 		}

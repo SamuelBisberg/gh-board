@@ -441,7 +441,7 @@ func TestTeamAddValidatesOrgMembership(t *testing.T) {
 func TestInitCreatesMissingStatusField(t *testing.T) {
 	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
 		"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
-	if err := runInit("", 8); err != nil {
+	if err := runInit("", ""); err != nil {
 		t.Fatal(err)
 	}
 	f.mustHave("project field-create 8", "--name Status", "Todo,In Progress,Needs Review,Changes Requested,Approved & Merged,Closed")
@@ -510,14 +510,14 @@ func TestConfigTemplatesInit(t *testing.T) {
 }
 
 func TestInitDefaultsToTheActiveAccount(t *testing.T) {
-	f := useFakeGH(t, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
+	f := useFakeGH(t, rule{Match: "project create", Stdout: `{"number":5}`}, rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
 		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Needs Review"},{"name":"Changes Requested"},{"name":"Approved & Merged"},{"name":"Closed"}]}]},
 		"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
 	cfg, _ := config.Load()
 	cfg.Board.Owner, cfg.Board.Project = "", 0
 	cfg.Save()
 
-	if err := runInit("", 5); err != nil {
+	if err := runInit("", ""); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _ = config.Load()
@@ -536,7 +536,7 @@ func TestInitCreatesABoardForTheActiveAccount(t *testing.T) {
 	cfg.Board.Owner, cfg.Board.Project = "", 0
 	cfg.Save()
 
-	if err := runInit("", 0); err != nil {
+	if err := runInit("", ""); err != nil {
 		t.Fatal(err)
 	}
 	f.mustHave("project create", "--owner me", "--title @me's Work")
@@ -550,7 +550,7 @@ func TestChangingOwnerForgetsTheOldProjectNumber(t *testing.T) {
 	useFakeGH(t, rule{Match: "project create", Stdout: `{"number":2}`},
 		rule{Match: "api graphql", Stdout: `{"data":{"repositoryOwner":{"projectV2":{
 			"fields":{"nodes":[{}]},"views":{"nodes":[{"name":"PRs"}]},"workflows":{"nodes":[{"name":"Item added to project","enabled":false},{"name":"Item closed","enabled":true},{"name":"Pull request merged","enabled":true},{"name":"Code changes requested","enabled":true},{"name":"Code review approved","enabled":true},{"name":"Pull request linked to issue","enabled":true},{"name":"Auto-archive items","enabled":true},{"name":"Auto-close issue","enabled":false},{"name":"When an item in the project has sub-issues","enabled":true}]}}}}}`})
-	if err := runInit("someone-else", 0); err != nil {
+	if err := runInit("someone-else", ""); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _ := config.Load()
@@ -671,11 +671,12 @@ const wrongStatusBoard = `{"data":{"repositoryOwner":{"projectV2":{"id":"PID",
 
 func TestInitFixesTheBoardAutomatically(t *testing.T) {
 	f := useFakeGH(t,
+		rule{Match: "project create", Stdout: `{"number":3}`},
 		rule{Match: "project field-list", Stdout: `{"fields":[{"id":"FID","name":"Status","options":[
 			{"id":"T1","name":"Todo"},{"id":"P1","name":"In Progress"},{"id":"D1","name":"Done"}]}]}`},
 		rule{Match: "api graphql -f query=query", Stdout: wrongStatusBoard})
 
-	if err := runInit("my-org", 3); err != nil {
+	if err := runInit("my-org", ""); err != nil {
 		t.Fatalf("init should fix the board itself, got %v", err)
 	}
 	var mutation string
@@ -705,7 +706,7 @@ func TestInitFixesTheBoardAutomatically(t *testing.T) {
 func TestInitLeavesAMatchingBoardAlone(t *testing.T) {
 	f := useFakeGH(t) // base rules: correct Status options, view and workflows
 	f.t.Helper()
-	if err := runInit("", 8); err != nil {
+	if err := runInit("", ""); err != nil {
 		t.Fatal(err)
 	}
 	f.mustNotHave("updateProjectV2Field")
@@ -718,8 +719,72 @@ func TestInitOnlyAdvisesAboutWorkflows(t *testing.T) {
 		"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Needs Review"},{"name":"Changes Requested"},{"name":"Approved & Merged"},{"name":"Closed"}]}]},
 		"views":{"nodes":[{"name":"PRs"}]},
 		"workflows":{"nodes":[{"name":"Item added to project","enabled":true},{"name":"Item closed","enabled":false}]}}}}}`})
-	if err := runInit("", 8); err != nil {
+	if err := runInit("", ""); err != nil {
 		t.Fatalf("workflows are advice, not failure: %v", err)
 	}
 	f.mustNotHave("updateProjectV2Workflow")
+}
+
+const boardList = `{"projects":[{"number":4,"title":"Alpha"},{"number":6,"title":"Twin"},{"number":9,"title":"Twin"}]}`
+
+func initWith(t *testing.T, project int, title string, rules ...rule) (*fakeGH, error) {
+	t.Helper()
+	f := useFakeGH(t, append(rules, rule{Match: "project create", Stdout: `{"number":12}`},
+		rule{Match: "project list", Stdout: boardList})...)
+	cfg, _ := config.Load()
+	cfg.Board.Owner, cfg.Board.Project = "me", project
+	cfg.Save()
+	return f, runInit("", title)
+}
+
+func TestInitTitleCreatesWhenNoBoardHasIt(t *testing.T) {
+	f, err := initWith(t, 0, "  My Work  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mustHave("project create", "--owner me", "--title My Work")
+	if cfg, _ := config.Load(); cfg.Board.Project != 12 {
+		t.Errorf("project = %d, want the created 12", cfg.Board.Project)
+	}
+}
+
+func TestInitTitleReusesAnExistingBoard(t *testing.T) {
+	f, err := initWith(t, 0, "Alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mustNotHave("project create")
+	if cfg, _ := config.Load(); cfg.Board.Project != 4 {
+		t.Errorf("project = %d, want 4", cfg.Board.Project)
+	}
+}
+
+func TestInitTitleMatchingIsCaseSensitive(t *testing.T) {
+	f, err := initWith(t, 0, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mustHave("project create", "--title alpha")
+}
+
+func TestInitTitleWithDuplicatesFails(t *testing.T) {
+	_, err := initWith(t, 0, "Twin")
+	if err == nil || !strings.Contains(err.Error(), "#6, #9") || !strings.Contains(err.Error(), "rename") {
+		t.Fatalf("err = %v, want a rename hint naming #6 and #9", err)
+	}
+	if cfg, _ := config.Load(); cfg.Board.Project != 0 {
+		t.Errorf("nothing should be saved, got project %d", cfg.Board.Project)
+	}
+}
+
+func TestInitWithoutTitleKeepsTheConfiguredBoard(t *testing.T) {
+	f, err := initWith(t, 7, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mustNotHave("project create")
+	f.mustNotHave("project list")
+	if cfg, _ := config.Load(); cfg.Board.Project != 7 {
+		t.Errorf("project = %d, want 7", cfg.Board.Project)
+	}
 }
