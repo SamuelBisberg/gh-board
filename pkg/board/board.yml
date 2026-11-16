@@ -18,7 +18,7 @@ version: 1
 board:
   # Owner and number come from the config (board.owner, board.project), chosen by
   # `gh board init`: the active gh account by default, or one of its organisations.
-  title: "@{{login}}'s Work"       # {{login}} = the logged-in gh user
+  title: "@{{login}}'s Work"       # default Board name, asked at `init`; {{login}} = the logged-in gh user
   visibility: private
   # Scopes the gh session needs: `gh auth refresh -s project -s read:org`
 
